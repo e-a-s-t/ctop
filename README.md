@@ -1,210 +1,137 @@
-# CTop
+# ctop
 
-> htop for AI coding assistants
+> Real-time usage dashboard for OpenAI Codex and GitHub Copilot CLI.
 
-CTop is a lightweight terminal dashboard for monitoring AI coding assistant usage in real time.
+`ctop` lets you answer questions like:
 
-It provides immediate visibility into:
+- **How many credits have I burned today?**
+- **Which session used the most tokens?**
+- **Am I accidentally spending millions of tokens?**
+- **How much cache reuse am I getting?**
+- **Which model is currently active?**
 
-- Input tokens
-- Output tokens
-- Cached tokens
-- Credits consumed
-- Session activity
-- Daily usage totals
-- Weekly usage totals
-- Monthly usage totals
-
-The goal is simple:
-
-> Answer the question *"How many credits have I burned today?"* without needing a spreadsheet or provider dashboard.
-
-Credits shown are estimates based on token usage.
+Unlike batch reporting tools, `ctop` provides a **live terminal dashboard** with session-level statistics and rolling totals.
 
 ---
 
 ## Features
 
-- Live updates
-- Session-aware usage tracking
-- Daily, weekly, and monthly summaries
-- Input / output / cache token breakdown
-- Fast startup
-- Zero configuration
-- Cross-platform
+- ⚡ Live updating dashboard
+- 📈 Daily, weekly and monthly totals
+- 🔥 Active session detection
+- 🤖 Model information
+- 💾 Cache create/read statistics
+- 💳 Credit tracking (not actual cost)
+- 🎨 Colorized terminal output
+- 🍎 Linux and macOS support (Windows coming)
+- 🚧 GitHub Copilot CLI support (experimental)
 
-Supported:
+---
 
-- Linux
-- macOS
-- Windows
-- Codex
-- GitHub Copilot CLI
-- VS Code Copilot Chat
+## Screenshot
+
+![ctop](images/ctop.png)
 
 ---
 
 ## Installation
 
-Run directly:
+### From GitHub
 
 ```bash
-npx ctop
+npm install -g github:e-a-s-t/ctop
 ```
 
-Or install globally:
-
-```bash
-npm install -g ctop
-
-ctop
-```
-
----
-
-## Example
-
-```text
-CTop v0.1
-
-Active sessions
-──────────────────────────────────────────
-22:31 gpt-5.5     ██████████       19k
-22:05 gpt-5.5     ████              7k
-
-Today
-──────────────────────────────────────────
-Input              82k
-Output             11k
-Cache             590k
-Credits           683k
-
-Refreshing every 2 seconds...
-```
-
----
-
-## Usage
-
-### Live dashboard
+### Run
 
 ```bash
 ctop
 ```
 
-### Show summary
+---
+
+## Options
 
 ```bash
-ctop --summary
-```
-
-### Show sessions
-
-```bash
-ctop --sessions
-```
-
-### Output JSON
-
-```bash
-ctop --json
-```
-
-### Change refresh interval
-
-```bash
+ctop --date YYYY-MM-DD
 ctop --refresh 5
+ctop --warn-tokens 2000000
 ```
 
-### Show a specific date
+### Environment variables
 
-```bash
-ctop --date 2026-06-04
-```
-
-Usage data sources:
-
-```text
-~/.codex/sessions/YYYY/MM/DD/*.jsonl
-~/Library/Application Support/Code/User/workspaceStorage/*/chatSessions/*.jsonl
-~/.copilot/session-state/*/workspace.yaml
-~/.copilot/session-state/*/events.jsonl
-~/.copilot/logs/process-*.log
-```
-
-Copilot support is source-aware:
-
-- `GH` rows may be `vscode` or `cli`
-- VS Code Copilot Chat parses session id, time, model, request count, and message count
-- Copilot CLI parses session id, time, model, request count, and message count
-- companion DBs inspected for schema context:
-  - `workspaceStorage/*/state.vscdb`
-  - `workspaceStorage/*/session-store.db`
-  - `~/.copilot/session-store.db`
-- token counters are used only when a real counter exists in stored session data
-- credits stay unavailable unless a real credit counter exists
-- totals remain partial when a Copilot source lacks usage or credits
-
----
-
-## Philosophy
-
-CTop aims to be:
-
-- Small
-- Fast
-- Simple
-- Scriptable
-
-Like `top`, `htop`, and `btop`, it should do one thing well.
-
----
-
-## Roadmap
-
-### v0.1
-
-- Live dashboard
-- Session view
-- Daily totals
-- JSON output
-
-### v0.2
-
-- Trend graphs
-- Top consumers
-- Historical view
-
-### v0.3
-
-Support for additional agents:
-
-- Claude Code
-- GitHub Copilot CLI
-- Gemini CLI
+| Variable | Description |
+|------------|------------|
+| `AI_USAGE_DATE` | Date to display |
+| `AI_USAGE_REFRESH` | Refresh interval |
+| `AI_USAGE_WARN_TOKENS` | Warning threshold |
 
 ---
 
 ## Why?
 
-Many existing tools focus on monthly reports and estimated cost.
+Most existing tools focus on producing reports after the fact.
 
-CTop focuses on the developer sitting at the keyboard right now.
+`ctop` is inspired by tools like:
 
-Questions like:
+- `htop`
+- `k9s`
+- `lazydocker`
 
-- How many credits have I burned today?
-- Is my current session active?
-- Which session consumed the most?
-- Did that last prompt explode my usage?
+The goal is simple:
 
-should be answered instantly.
+> Bring observability to AI-assisted development.
 
 ---
 
-## Contributing
+## Supported Data Sources
 
-Issues, suggestions and pull requests are welcome.
+### OpenAI Codex CLI
+
+Reads:
+
+```text
+~/.codex/sessions/YYYY/MM/DD/*.jsonl
+~/.codex/history.jsonl
+```
+
+### GitHub Copilot CLI
+
+Support is under development.
+
+---
+
+## Philosophy
+
+`ctop` focuses on:
+
+- Speed
+- Zero configuration
+- Live feedback
+- Session visibility
+- Credit awareness
+
+Because sometimes you just want to know:
+
+> "How much context did I burn today?"
+
+---
+
+## Example Workflow
+
+Start coding:
+
+```bash
+codex
+```
+
+Open another terminal:
+
+```bash
+ctop
+```
+
+Watch your usage in real time.
 
 ---
 
