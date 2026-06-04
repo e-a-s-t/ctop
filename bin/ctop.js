@@ -17,6 +17,11 @@ function arg(name) {
   return idx >= 0 ? args[idx + 1] : undefined;
 }
 
+function argFrom(list, name) {
+  const idx = list.indexOf(name);
+  return idx >= 0 ? list[idx + 1] : undefined;
+}
+
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
 Codex Usage Dashboard
@@ -30,12 +35,16 @@ Options:
   --refresh SECONDS       Refresh interval, default 2
   --warn-tokens NUMBER    Warning threshold, default 2000000
   --lookback-days NUMBER  Scan recent session folders, default 14
+  --codex-weekly-limit N  Weekly Codex credit calibration
+  --codex-monthly-limit N Monthly Codex credit calibration
 
 Environment:
   AI_USAGE_DATE
   AI_USAGE_REFRESH
   AI_USAGE_WARN_TOKENS
   AI_USAGE_LOOKBACK_DAYS
+  CTOP_CODEX_WEEKLY_LIMIT
+  CTOP_CODEX_MONTHLY_LIMIT
 
 Data:
   ~/.codex/sessions/YYYY/MM/DD/*.jsonl
@@ -72,6 +81,22 @@ const REFRESH = Number(arg("--refresh") ?? process.env.AI_USAGE_REFRESH ?? "2");
 const LOOKBACK_DAYS = Number(
   arg("--lookback-days") ?? process.env.AI_USAGE_LOOKBACK_DAYS ?? "14",
 );
+const CODEX_WEEKLY_LIMIT = resolveCodexLimit(
+  "--codex-weekly-limit",
+  "CTOP_CODEX_WEEKLY_LIMIT",
+);
+const CODEX_MONTHLY_LIMIT = resolveCodexLimit(
+  "--codex-monthly-limit",
+  "CTOP_CODEX_MONTHLY_LIMIT",
+);
+
+export function resolveCodexLimit(flagName, envName, argv = args, env = process.env) {
+  const raw = argFrom(argv, flagName) ?? env[envName];
+  if (raw == null || raw === "") return null;
+
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
 
 function currentDate() {
   return (
@@ -315,6 +340,38 @@ function creditsCell(value, available, width) {
   return padVisible(`${Y}${value.toFixed(2)}${Z}`, width, "right");
 }
 
+function findCodexCredits(providerTotals) {
+  return providerTotals.find((total) => total.providerTag === "CX")?.credits ?? 0;
+}
+
+function limitColor(percent) {
+  if (percent > 100) return R;
+  if (percent > 95) return R;
+  if (percent > 80) return Y;
+  return Z;
+}
+
+function limitMarker(percent) {
+  return percent > 100 ? "🔥" : "";
+}
+
+function limitBar(percent, width = 16) {
+  const filled = Math.min(width, Math.max(0, Math.round((percent / 100) * width)));
+  return "█".repeat(filled) + D + "░".repeat(width - filled) + Z;
+}
+
+export function renderCodexLimitLine(periodName, credits, limit) {
+  if (!(limit > 0)) return null;
+
+  const percent = Math.round((credits / limit) * 100);
+  const color = limitColor(percent);
+  const marker = limitMarker(percent);
+  const pct = `${percent}%`;
+  const line = `${C}CX${Z} ${credits.toFixed(2)} / ${limit} ${color}(${pct})${Z}`;
+  const progress = `${color}${limitBar(percent)}${Z}`;
+  return marker ? `${line} ${progress} ${marker}` : `${line} ${progress}`;
+}
+
 export function renderProviderTotals(periodName, totals, providerTotals) {
   const columns = [
     ["SRC", 6, "left"],
@@ -367,10 +424,14 @@ export function renderProviderTotals(periodName, totals, providerTotals) {
   ];
 }
 
-export function renderPeriodLines(label, sessions) {
+export function renderPeriodLines(label, sessions, options = {}) {
   const totals = collectUsageTotals(sessions);
   const providers = collectProviderTotals(sessions);
-  return renderProviderTotals(label, totals, providers);
+  const lines = renderProviderTotals(label, totals, providers);
+  const limit = label === "Week" ? options.codexWeeklyLimit : options.codexMonthlyLimit;
+  const limitLine = renderCodexLimitLine(label, findCodexCredits(providers), limit);
+  if (limitLine) lines.push(limitLine);
+  return lines;
 }
 
 function render() {
@@ -408,11 +469,15 @@ function render() {
 
     console.log(`│ ${cell(rightCredit(totalLeft, totals.credits))} │`);
     console.log("├" + "─".repeat(WIDTH + 2) + "┤");
-    for (const line of renderPeriodLines("Week", thisWeekSessions)) {
+    for (const line of renderPeriodLines("Week", thisWeekSessions, {
+      codexWeeklyLimit: CODEX_WEEKLY_LIMIT,
+    })) {
       console.log(`│ ${cell(line)} │`);
     }
     console.log("├" + "─".repeat(WIDTH + 2) + "┤");
-    for (const line of renderPeriodLines("Month", thisMonthSessions)) {
+    for (const line of renderPeriodLines("Month", thisMonthSessions, {
+      codexMonthlyLimit: CODEX_MONTHLY_LIMIT,
+    })) {
       console.log(`│ ${cell(line)} │`);
     }
     if (partialData) {

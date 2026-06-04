@@ -56,6 +56,8 @@ ctop
 ctop --date YYYY-MM-DD
 ctop --refresh 5
 ctop --warn-tokens 2000000
+ctop --codex-weekly-limit 4000
+ctop --codex-monthly-limit 15000
 ```
 
 ### Environment variables
@@ -65,6 +67,19 @@ ctop --warn-tokens 2000000
 | `AI_USAGE_DATE` | Date to display |
 | `AI_USAGE_REFRESH` | Refresh interval |
 | `AI_USAGE_WARN_TOKENS` | Warning threshold |
+| `CTOP_CODEX_WEEKLY_LIMIT` | User-defined weekly Codex credit calibration |
+| `CTOP_CODEX_MONTHLY_LIMIT` | User-defined monthly Codex credit calibration |
+
+Example:
+
+```bash
+CTOP_CODEX_WEEKLY_LIMIT=4000 \
+CTOP_CODEX_MONTHLY_LIMIT=15000 \
+ctop
+```
+
+Codex limits are user-defined calibrations based on observed Codex usage. They are not official OpenAI quotas or limits.
+CLI flags override environment variables.
 
 ---
 

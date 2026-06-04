@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import path from "node:path";
 
 import {
+  renderCodexLimitLine,
   renderProviderTotals,
   renderPeriodLines,
   renderSessionLine,
   renderSessionMetrics,
+  resolveCodexLimit,
 } from "../bin/ctop.js";
 import {
   collectProviderTotals,
@@ -316,6 +318,52 @@ test("Week and Month show CX and GH totals", () => {
   assert.match(month, /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--$/m);
 });
 
+test("period lines stay unchanged when no Codex limits configured", () => {
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-04",
+    lookbackDays: 14,
+    helpers,
+    homeDir: FIXTURE_HOME,
+  });
+
+  const week = renderPeriodLines("Week", sessions).map(stripAnsi);
+  const month = renderPeriodLines("Month", sessions).map(stripAnsi);
+
+  assert.deepEqual(week, [
+    "Week",
+    "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
+    "ALL         480      250      100      120       10    -    -     0.05",
+    "CX          230      100       50       80        0    -    -     0.05",
+    "GH          250      150       50       40       10    2    1       --",
+  ]);
+  assert.deepEqual(month, [
+    "Month",
+    "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
+    "ALL         480      250      100      120       10    -    -     0.05",
+    "CX          230      100       50       80        0    -    -     0.05",
+    "GH          250      150       50       40       10    2    1       --",
+  ]);
+});
+
+test("period lines append Codex limit progress for CX only", () => {
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-04",
+    lookbackDays: 14,
+    helpers,
+    homeDir: FIXTURE_HOME,
+  });
+
+  const week = renderPeriodLines("Week", sessions, {
+    codexWeeklyLimit: 0.05,
+  }).map(stripAnsi);
+  const month = renderPeriodLines("Month", sessions, {
+    codexMonthlyLimit: 0.06,
+  }).map(stripAnsi);
+
+  assert.equal(week.at(-1), "CX 0.05 / 0.05 (102%) ████████████████ 🔥");
+  assert.equal(month.at(-1), "CX 0.05 / 0.06 (85%) ██████████████░░");
+});
+
 test("renderProviderTotals keeps fixed columns and dims unavailable values", () => {
   const rendered = renderProviderTotals(
     "Week",
@@ -367,6 +415,52 @@ test("renderProviderTotals keeps fixed columns and dims unavailable values", () 
   assert.match(rendered[1], /\x1b\[2m/);
   assert.match(rendered[2], /\x1b\[33m806\.91\x1b\[0m/);
   assert.match(rendered[4], /\x1b\[2m--\x1b\[0m/);
+});
+
+test("resolveCodexLimit prefers CLI over env", () => {
+  assert.equal(
+    resolveCodexLimit(
+      "--codex-weekly-limit",
+      "CTOP_CODEX_WEEKLY_LIMIT",
+      ["--codex-weekly-limit", "4000"],
+      { CTOP_CODEX_WEEKLY_LIMIT: "3000" },
+    ),
+    4000,
+  );
+});
+
+test("resolveCodexLimit uses env when CLI absent", () => {
+  assert.equal(
+    resolveCodexLimit("--codex-monthly-limit", "CTOP_CODEX_MONTHLY_LIMIT", [], {
+      CTOP_CODEX_MONTHLY_LIMIT: "15000",
+    }),
+    15000,
+  );
+});
+
+test("renderCodexLimitLine colors thresholds and progress bar", () => {
+  assert.equal(
+    stripAnsi(renderCodexLimitLine("Week", 3642.73, 4000)),
+    "CX 3642.73 / 4000 (91%) ███████████████░",
+  );
+  assert.match(renderCodexLimitLine("Week", 3642.73, 4000), /\x1b\[33m\(91%\)/);
+
+  assert.equal(
+    stripAnsi(renderCodexLimitLine("Month", 12495.58, 15000)),
+    "CX 12495.58 / 15000 (83%) █████████████░░░",
+  );
+
+  assert.equal(
+    stripAnsi(renderCodexLimitLine("Week", 96, 100)),
+    "CX 96.00 / 100 (96%) ███████████████░",
+  );
+  assert.match(renderCodexLimitLine("Week", 96, 100), /\x1b\[31m\(96%\)/);
+
+  assert.equal(
+    stripAnsi(renderCodexLimitLine("Week", 101, 100)),
+    "CX 101.00 / 100 (101%) ████████████████ 🔥",
+  );
+  assert.match(renderCodexLimitLine("Week", 101, 100), /🔥/);
 });
 
 test("missing copilot path does not break codex collection", () => {
