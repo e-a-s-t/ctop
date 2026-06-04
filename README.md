@@ -38,6 +38,9 @@ Supported:
 - Linux
 - macOS
 - Windows
+- Codex
+- GitHub Copilot CLI
+- VS Code Copilot Chat
 
 ---
 
@@ -119,11 +122,28 @@ ctop --refresh 5
 ctop --date 2026-06-04
 ```
 
-Usage data source:
+Usage data sources:
 
 ```text
 ~/.codex/sessions/YYYY/MM/DD/*.jsonl
+~/Library/Application Support/Code/User/workspaceStorage/*/chatSessions/*.jsonl
+~/.copilot/session-state/*/workspace.yaml
+~/.copilot/session-state/*/events.jsonl
+~/.copilot/logs/process-*.log
 ```
+
+Copilot support is source-aware:
+
+- `GH` rows may be `vscode` or `cli`
+- VS Code Copilot Chat parses session id, time, model, request count, and message count
+- Copilot CLI parses session id, time, model, request count, and message count
+- companion DBs inspected for schema context:
+  - `workspaceStorage/*/state.vscdb`
+  - `workspaceStorage/*/session-store.db`
+  - `~/.copilot/session-store.db`
+- token counters are used only when a real counter exists in stored session data
+- credits stay unavailable unless a real credit counter exists
+- totals remain partial when a Copilot source lacks usage or credits
 
 ---
 

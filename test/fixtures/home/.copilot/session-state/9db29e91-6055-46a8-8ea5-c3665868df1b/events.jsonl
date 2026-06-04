@@ -1,0 +1,5 @@
+{"type":"session.start","data":{"sessionId":"9db29e91-6055-46a8-8ea5-c3665868df1b","startTime":"2026-06-04T09:03:18.497Z"},"timestamp":"2026-06-04T09:03:19.280Z"}
+{"type":"session.model_change","data":{"newModel":"gpt-5-mini"},"timestamp":"2026-06-04T09:03:20.797Z"}
+{"type":"user.message","data":{"interactionId":"89937deb-26e2-4141-92e4-79f83f5d1850"},"timestamp":"2026-06-04T09:04:26.032Z"}
+{"type":"assistant.message","data":{"model":"gpt-5-mini"},"timestamp":"2026-06-04T09:04:31.266Z"}
+{"type":"session.shutdown","data":{"totalNanoAiu":440755000,"currentModel":"gpt-5-mini","modelMetrics":{"gpt-5-mini":{"usage":{"inputTokens":150,"outputTokens":50,"cacheReadTokens":40,"cacheWriteTokens":0,"reasoningTokens":10}}}},"timestamp":"2026-06-04T09:09:23.556Z"}
