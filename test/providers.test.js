@@ -12,7 +12,9 @@ import {
   collectProviderTotals,
   collectSessionsForDate,
   collectUsageTotals,
+  estimateCredits,
   hasPartialData,
+  MODEL_PRICING,
 } from "../lib/providers.js";
 
 const FIXTURE_HOME = path.resolve("test/fixtures/home");
@@ -213,6 +215,84 @@ test("provider totals keep token totals and metadata-only msg/req totals", () =>
   assert.equal(gh.creditAvailable, false);
   assert.equal(gh.metadataMessageCount, 2);
   assert.equal(gh.metadataRequestCount, 1);
+});
+
+test("estimateCredits bills cacheCreate at input rate", () => {
+  const withoutCacheCreate = estimateCredits({
+    model: "g5.2-codex",
+    input: 1_000_000,
+    cacheCreate: 0,
+    cacheRead: 1_000_000,
+    output: 1_000_000,
+    reasoning: 1_000_000,
+  });
+  const withCacheCreate = estimateCredits({
+    model: "g5.2-codex",
+    input: 1_000_000,
+    cacheCreate: 500_000,
+    cacheRead: 1_000_000,
+    output: 1_000_000,
+    reasoning: 1_000_000,
+  });
+
+  assert.equal(
+    withoutCacheCreate,
+    MODEL_PRICING["g5.2-codex"].input +
+      MODEL_PRICING["g5.2-codex"].cache +
+      MODEL_PRICING["g5.2-codex"].output,
+  );
+  assert.equal(
+    withCacheCreate - withoutCacheCreate,
+    (500_000 / 1_000_000) * MODEL_PRICING["g5.2-codex"].input,
+  );
+});
+
+test("estimateCredits ignores reasoning and preserves behavior when cacheCreate is zero", () => {
+  const baseSession = {
+    model: "g5.4",
+    input: 2_000_000,
+    cacheCreate: 0,
+    cacheRead: 3_000_000,
+    output: 4_000_000,
+  };
+
+  const expected =
+    2 * MODEL_PRICING["g5.4"].input +
+    3 * MODEL_PRICING["g5.4"].cache +
+    4 * MODEL_PRICING["g5.4"].output;
+
+  assert.equal(estimateCredits(baseSession), expected);
+  assert.equal(
+    estimateCredits({ ...baseSession, reasoning: 0 }),
+    estimateCredits({ ...baseSession, reasoning: 999_999 }),
+  );
+});
+
+test("estimateCredits resolves aliases and unknown models use default pricing", () => {
+  const usage = {
+    input: 1_000_000,
+    cacheCreate: 1_000_000,
+    cacheRead: 1_000_000,
+    output: 1_000_000,
+    reasoning: 123_456,
+  };
+
+  assert.equal(
+    estimateCredits({ model: "gpt-5.2-codex", ...usage }),
+    estimateCredits({ model: "g5.2-codex", ...usage }),
+  );
+  assert.equal(
+    estimateCredits({ model: "gpt-5.1-codex-mini", ...usage }),
+    estimateCredits({ model: "codex-mini-latest", ...usage }),
+  );
+  assert.equal(
+    estimateCredits({ model: "gpt-5.5", ...usage }),
+    estimateCredits({ model: "g5.5", ...usage }),
+  );
+  assert.equal(
+    estimateCredits({ model: "totally-unknown-model", ...usage }),
+    estimateCredits({ model: "default", ...usage }),
+  );
 });
 
 test("Week and Month show CX and GH totals", () => {
