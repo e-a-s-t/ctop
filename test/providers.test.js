@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 
+import { renderSessionMetrics } from "../bin/ctop.js";
 import {
   collectSessionsForDate,
   collectUsageTotals,
@@ -107,6 +108,47 @@ test("totals ignore rows with unavailable copilot usage and mark partial", () =>
   assert.equal(totals.reasoning, 10);
   assert.equal(Number(totals.credits.toFixed(3)), 0.051);
   assert.equal(hasPartialData(sessions), true);
+});
+
+test("copilot rows without tokens show msg/req metadata", () => {
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-04",
+    lookbackDays: 14,
+    helpers,
+    homeDir: FIXTURE_HOME,
+  });
+
+  const vscode = sessions.find((session) => session.source === "vscode");
+  assert.ok(vscode);
+  assert.match(renderSessionMetrics(vscode, 250), /msg:2/);
+  assert.match(renderSessionMetrics(vscode, 250), /req:1/);
+  assert.match(renderSessionMetrics(vscode, 250), /I:-- O:-- C:-- R:--/);
+
+  const cliNoTokens = {
+    provider: "copilot",
+    usageAvailable: false,
+    messageCount: 3,
+    requestCount: 1,
+  };
+  assert.match(renderSessionMetrics(cliNoTokens, 250), /msg:3/);
+  assert.match(renderSessionMetrics(cliNoTokens, 250), /req:1/);
+});
+
+test("copilot rows with real tokens keep token display", () => {
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-04",
+    lookbackDays: 14,
+    helpers,
+    homeDir: FIXTURE_HOME,
+  });
+
+  const cli = sessions.find((session) => session.source === "cli");
+  assert.ok(cli);
+
+  const rendered = renderSessionMetrics(cli, cli.total);
+  assert.match(rendered, /I:150 O:50 C:40 R:10/);
+  assert.doesNotMatch(rendered, /msg:/);
+  assert.doesNotMatch(rendered, /req:/);
 });
 
 test("missing copilot path does not break codex collection", () => {

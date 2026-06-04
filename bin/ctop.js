@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+import fs from "node:fs";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import {
   collectSessionsForDate,
   collectUsageTotals,
@@ -258,6 +260,21 @@ function collectUsageForDateRange(startDate, endDate) {
   return totals;
 }
 
+export function renderSessionMetrics(s, max) {
+  if (s.usageAvailable) {
+    return (
+      `${bar(s, max)} ${fmt(s.total).padStart(5)} ` +
+      `I:${fmt(s.input)} O:${fmt(s.output)} C:${fmt(s.cacheRead)} R:${fmt(s.reasoning)} ${risk(s)}`
+    );
+  }
+
+  const usage = [];
+  if (s.provider === "copilot" && s.messageCount > 0) usage.push(`msg:${s.messageCount}`);
+  if (s.provider === "copilot" && s.requestCount > 0) usage.push(`req:${s.requestCount}`);
+  const extra = usage.length > 0 ? ` ${usage.join(" ")}` : "";
+  return `${D}${"·".repeat(16)}${Z} ${"--".padStart(5)} I:-- O:-- C:-- R:-- ?${extra}`;
+}
+
 function render() {
   const date = currentDate();
   const thisWeek = collectUsageForDateRange(weekStart(date), weekEnd(date));
@@ -286,10 +303,7 @@ function render() {
     );
   } else {
     for (const s of sessions) {
-      const metrics = s.usageAvailable
-        ? `${bar(s, max)} ${fmt(s.total).padStart(5)} ` +
-          `I:${fmt(s.input)} O:${fmt(s.output)} C:${fmt(s.cacheRead)} R:${fmt(s.reasoning)} ${risk(s)}`
-        : `${D}${"·".repeat(16)}${Z} ${"--".padStart(5)} I:-- O:-- C:-- R:-- ?`;
+      const metrics = renderSessionMetrics(s, max);
       const credit = s.creditAvailable ? s.credits.toFixed(2) : "--";
       const left =
         `${C}${s.time}${Z} ${s.providerTag.padEnd(2)} ${s.model.padEnd(8).slice(0, 8)} ` +
@@ -330,4 +344,6 @@ async function loop() {
   }
 }
 
-loop();
+if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
+  loop();
+}
