@@ -1,0 +1,8 @@
+# cctop monitoring data
+data/
+logs/
+runtime/
+temp/
+
+# User customizations
+themes/custom/

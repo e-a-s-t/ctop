@@ -1,0 +1,42 @@
+{
+  "monitoring": {
+    "watchPaths": [
+      "/Users/east/repos/private/cctop"
+    ],
+    "excludePatterns": [
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/.*",
+      "**/.cctop/**",
+      "**/dist/**",
+      "**/coverage/**",
+      "**/build/**",
+      "**/*.log",
+      "**/.DS_Store"
+    ],
+    "debounceMs": 100,
+    "maxDepth": 10,
+    "moveThresholdMs": 100,
+    "systemLimits": {
+      "requiredLimit": 524288,
+      "checkOnStartup": true,
+      "warnIfInsufficient": true
+    }
+  },
+  "daemon": {
+    "pidFile": ".cctop/runtime/daemon.pid",
+    "logFile": ".cctop/logs/daemon.log",
+    "logLevel": "info",
+    "heartbeatInterval": 30000,
+    "autoStart": true,
+    "maxRestarts": 3,
+    "restartDelay": 5000
+  },
+  "database": {
+    "writeMode": "WAL",
+    "syncMode": "NORMAL",
+    "cacheSize": 65536,
+    "busyTimeout": 5000,
+    "checkpointInterval": 300000
+  }
+}

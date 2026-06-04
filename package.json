@@ -1,0 +1,11 @@
+{
+  "name": "ctop",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "ctop": "./bin/ctop.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
