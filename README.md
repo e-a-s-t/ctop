@@ -12,10 +12,14 @@ It provides immediate visibility into:
 - Credits consumed
 - Session activity
 - Daily usage totals
+- Weekly usage totals
+- Monthly usage totals
 
 The goal is simple:
 
 > Answer the question *"How many credits have I burned today?"* without needing a spreadsheet or provider dashboard.
+
+Credits shown are estimates based on token usage.
 
 ---
 
@@ -23,7 +27,7 @@ The goal is simple:
 
 - Live updates
 - Session-aware usage tracking
-- Daily summaries
+- Daily, weekly, and monthly summaries
 - Input / output / cache token breakdown
 - Fast startup
 - Zero configuration
@@ -113,6 +117,12 @@ ctop --refresh 5
 
 ```bash
 ctop --date 2026-06-04
+```
+
+Usage data source:
+
+```text
+~/.codex/sessions/YYYY/MM/DD/*.jsonl
 ```
 
 ---

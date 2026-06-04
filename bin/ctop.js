@@ -122,6 +122,50 @@ function dateMinus(date, days) {
   }).format(d);
 }
 
+function datePlus(date, days) {
+  const d = new Date(`${date}T12:00:00+02:00`);
+  d.setDate(d.getDate() + days);
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function weekStart(date) {
+  const d = new Date(`${date}T12:00:00+02:00`);
+  const day = d.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  d.setDate(d.getDate() - diff);
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function monthStart(date) {
+  const [yy, mm] = date.split("-");
+  return `${yy}-${mm}-01`;
+}
+
+function monthEnd(date) {
+  const [yy, mm] = date.split("-").map(Number);
+  const d = new Date(Date.UTC(yy, mm, 0, 12, 0, 0));
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function weekEnd(date) {
+  return datePlus(weekStart(date), 6);
+}
+
 function strip(s) {
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
@@ -171,6 +215,19 @@ function add(a, b) {
   a.reasoning += b.reasoning ?? 0;
   a.total += b.total ?? 0;
   a.credits += b.credits ?? 0;
+}
+
+function emptyUsage() {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheCreate: 0,
+    reasoning: 0,
+    total: 0,
+    credits: 0,
+    model: "default",
+  };
 }
 
 function modelFrom(obj) {
@@ -248,7 +305,36 @@ function risk(s) {
 }
 
 function sessionName(file) {
-  return path.basename(file, ".jsonl").slice(0, 22);
+  const text = fs.readFileSync(file, "utf8");
+
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+
+    try {
+      const obj = JSON.parse(line);
+
+      const id =
+        obj.session_id ??
+        obj.sessionId ??
+        obj.id ??
+        obj.payload?.session_id ??
+        obj.payload?.sessionId ??
+        obj.payload?.session?.id ??
+        obj.payload?.id;
+
+      if (typeof id === "string" && id.length > 8) {
+        return `${id.slice(0, 4)}…${id.slice(-4)}`;
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+
+  // Fallback if no session id found
+  return path
+    .basename(file, ".jsonl")
+    .replace(/^rollout-/, "")
+    .slice(0, 16);
 }
 
 function readSessionActiveOnDate(file, selectedDate) {
@@ -314,35 +400,47 @@ function candidateDirs(selectedDate) {
   return dirs;
 }
 
-function render() {
-  const date = currentDate();
-
+function collectUsageForDate(date) {
+  const totals = emptyUsage();
   const files = candidateDirs(date).flatMap((d) => walk(d));
 
+  for (const file of files) {
+    const session = readSessionActiveOnDate(file, date);
+    if (session) add(totals, session);
+  }
+
+  return totals;
+}
+
+function collectUsageForDateRange(startDate, endDate) {
+  const totals = emptyUsage();
+
+  for (let date = startDate; date <= endDate; date = datePlus(date, 1)) {
+    add(totals, collectUsageForDate(date));
+  }
+
+  return totals;
+}
+
+function render() {
+  const date = currentDate();
+  const dayStart = date;
+  const dayEnd = date;
+  const thisWeek = collectUsageForDateRange(weekStart(date), weekEnd(date));
+  const thisMonth = collectUsageForDateRange(monthStart(date), monthEnd(date));
+  const files = candidateDirs(date).flatMap((d) => walk(d));
   const sessions = files
     .map((f) => readSessionActiveOnDate(f, date))
     .filter(Boolean)
     .sort((a, b) => a.time.localeCompare(b.time));
-
-  const totals = {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheCreate: 0,
-    reasoning: 0,
-    total: 0,
-    credits: 0,
-    model: "default",
-  };
-
-  for (const s of sessions) add(totals, s);
+  const totals = collectUsageForDateRange(dayStart, dayEnd);
 
   const max = Math.max(...sessions.map((s) => s.total), 1);
 
   process.stdout.write("\x1Bc");
   console.log("╭" + "─".repeat(WIDTH + 2) + "╮");
   console.log(
-    `│ ${cell(`Codex Usage ${date}  ACTIVE TODAY  ${B}in${Z} ${G}out${Z} ${X}cache${Z} ${M}create${Z}`)} │`,
+    `│ ${cell(`CTop ${date}  ACTIVE TODAY  ${B}in${Z} ${G}out${Z} ${X}cache${Z} ${M}create${Z}`)} │`,
   );
   console.log("├" + "─".repeat(WIDTH + 2) + "┤");
 
@@ -368,6 +466,13 @@ function render() {
       `I:${fmt(totals.input)} O:${fmt(totals.output)} C:${fmt(totals.cacheRead)} R:${fmt(totals.reasoning)}`;
 
     console.log(`│ ${cell(rightCredit(totalLeft, totals.credits))} │`);
+    console.log("├" + "─".repeat(WIDTH + 2) + "┤");
+    console.log(
+      `│ ${cell(rightCredit(`Week: ${fmt(thisWeek.total)} I:${fmt(thisWeek.input)} O:${fmt(thisWeek.output)} C:${fmt(thisWeek.cacheRead)} R:${fmt(thisWeek.reasoning)}`, thisWeek.credits))} │`,
+    );
+    console.log(
+      `│ ${cell(rightCredit(`Month: ${fmt(thisMonth.total)} I:${fmt(thisMonth.input)} O:${fmt(thisMonth.output)} C:${fmt(thisMonth.cacheRead)} R:${fmt(thisMonth.reasoning)}`, thisMonth.credits))} │`,
+    );
   }
 
   console.log("╰" + "─".repeat(WIDTH + 2) + "╯");
