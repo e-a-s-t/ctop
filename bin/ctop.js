@@ -5,6 +5,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   collectSessionsForDate,
+  collectProviderTotals,
   collectUsageTotals,
   hasPartialData,
 } from "../lib/providers.js";
@@ -185,6 +186,18 @@ function rightCreditLabel(left, creditLabel) {
   return left + " ".repeat(Math.max(1, spaces)) + right;
 }
 
+function padVisible(value, width, align = "left") {
+  const text = `${value}`;
+  const spaces = " ".repeat(Math.max(0, width - strip(text).length));
+  return align === "right" ? spaces + text : text + spaces;
+}
+
+function providerSourceLabel(session) {
+  return session.sourceLabel
+    ? `${session.providerTag} ${session.sourceLabel}`
+    : session.providerTag;
+}
+
 function fmt(n = 0) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
@@ -225,41 +238,6 @@ function risk(s) {
   return `${G}●${Z}`;
 }
 
-function collectUsageForDate(date) {
-  const sessions = collectSessionsForDate({
-    selectedDate: date,
-    lookbackDays: LOOKBACK_DAYS,
-    homeDir: HOME,
-    helpers: { dateMinus, localDate, localTime },
-  });
-  return collectUsageTotals(sessions);
-}
-
-function collectUsageForDateRange(startDate, endDate) {
-  const totals = {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheCreate: 0,
-    reasoning: 0,
-    total: 0,
-    credits: 0,
-  };
-
-  for (let date = startDate; date <= endDate; date = datePlus(date, 1)) {
-    const next = collectUsageForDate(date);
-    totals.input += next.input;
-    totals.output += next.output;
-    totals.cacheRead += next.cacheRead;
-    totals.cacheCreate += next.cacheCreate;
-    totals.reasoning += next.reasoning;
-    totals.total += next.total;
-    totals.credits += next.credits;
-  }
-
-  return totals;
-}
-
 export function renderSessionMetrics(s, max) {
   if (s.usageAvailable) {
     return (
@@ -275,17 +253,133 @@ export function renderSessionMetrics(s, max) {
   return `${D}${"·".repeat(16)}${Z} ${"--".padStart(5)} I:-- O:-- C:-- R:-- ?${extra}`;
 }
 
-function render() {
-  const date = currentDate();
-  const thisWeek = collectUsageForDateRange(weekStart(date), weekEnd(date));
-  const thisMonth = collectUsageForDateRange(monthStart(date), monthEnd(date));
+export function renderSessionLine(s, max) {
+  const metrics = renderSessionMetrics(s, max);
+  const credit = s.creditAvailable ? s.credits.toFixed(2) : "--";
+  const left =
+    `${C}${s.time}${Z} ${providerSourceLabel(s).padEnd(9)} ${s.model.padEnd(8).slice(0, 8)} ` +
+    `${metrics} ${D}${s.name}${Z}`;
+
+  return rightCreditLabel(left, credit);
+}
+
+function collectSessionsForRange(startDate, endDate) {
+  const sessions = [];
+
+  for (let date = startDate; date <= endDate; date = datePlus(date, 1)) {
+    sessions.push(...collectUsageForDate(date).sessions);
+  }
+
+  return sessions;
+}
+
+function collectUsageForDate(date) {
   const sessions = collectSessionsForDate({
     selectedDate: date,
     lookbackDays: LOOKBACK_DAYS,
     homeDir: HOME,
     helpers: { dateMinus, localDate, localTime },
   });
+  return {
+    sessions,
+    totals: collectUsageTotals(sessions),
+  };
+}
+
+function providerColor(providerTag) {
+  if (providerTag === "CX") return C;
+  if (providerTag === "GH") return G;
+  return Z;
+}
+
+function colorProviderTag(providerTag) {
+  const color = providerColor(providerTag);
+  return color === Z ? providerTag : `${color}${providerTag}${Z}`;
+}
+
+function providerCell(value, width, providerTag) {
+  return padVisible(colorProviderTag(value), width);
+}
+
+function usageCell(total, key, width) {
+  if (total.total <= 0) return padVisible(`${D}--${Z}`, width, "right");
+  return padVisible(fmt(total[key]), width, "right");
+}
+
+function metaCell(value, width) {
+  return padVisible(value > 0 ? `${value}` : `${D}-${Z}`, width, "right");
+}
+
+function creditsCell(value, available, width) {
+  if (!available) return padVisible(`${D}--${Z}`, width, "right");
+  return padVisible(`${Y}${value.toFixed(2)}${Z}`, width, "right");
+}
+
+export function renderProviderTotals(periodName, totals, providerTotals) {
+  const columns = [
+    ["SRC", 6, "left"],
+    ["TOTAL", 8, "right"],
+    ["INPUT", 8, "right"],
+    ["OUTPUT", 8, "right"],
+    ["CACHE", 8, "right"],
+    ["REASON", 8, "right"],
+    ["MSG", 4, "right"],
+    ["REQ", 4, "right"],
+    ["CREDITS", 8, "right"],
+  ];
+
+  const header = `${D}${columns
+    .map(([label, width, align]) => padVisible(label, width, align))
+    .join(" ")}${Z}`;
+
+  const rows = [
+    {
+      providerTag: "ALL",
+      total: totals.total,
+      input: totals.input,
+      output: totals.output,
+      cacheRead: totals.cacheRead,
+      reasoning: totals.reasoning,
+      metadataMessageCount: 0,
+      metadataRequestCount: 0,
+      credits: totals.credits,
+      creditAvailable: true,
+    },
+    ...providerTotals,
+  ];
+
+  return [
+    periodName,
+    header,
+    ...rows.map((total) =>
+      [
+        providerCell(total.providerTag, 6, total.providerTag),
+        usageCell(total, "total", 8),
+        usageCell(total, "input", 8),
+        usageCell(total, "output", 8),
+        usageCell(total, "cacheRead", 8),
+        usageCell(total, "reasoning", 8),
+        metaCell(total.metadataMessageCount, 4),
+        metaCell(total.metadataRequestCount, 4),
+        creditsCell(total.credits, total.creditAvailable, 8),
+      ].join(" "),
+    ),
+  ];
+}
+
+export function renderPeriodLines(label, sessions) {
   const totals = collectUsageTotals(sessions);
+  const providers = collectProviderTotals(sessions);
+  return renderProviderTotals(label, totals, providers);
+}
+
+function render() {
+  const date = currentDate();
+  const today = collectUsageForDate(date);
+  const thisWeekSessions = collectSessionsForRange(weekStart(date), weekEnd(date));
+  const thisMonthSessions = collectSessionsForRange(monthStart(date), monthEnd(date));
+  const sessions = today.sessions;
+  const totals = today.totals;
   const partialData = hasPartialData(sessions);
 
   const max = Math.max(...sessions.map((s) => s.total), 1);
@@ -303,13 +397,7 @@ function render() {
     );
   } else {
     for (const s of sessions) {
-      const metrics = renderSessionMetrics(s, max);
-      const credit = s.creditAvailable ? s.credits.toFixed(2) : "--";
-      const left =
-        `${C}${s.time}${Z} ${s.providerTag.padEnd(2)} ${s.model.padEnd(8).slice(0, 8)} ` +
-        `${metrics} ${D}${s.name}${Z}`;
-
-      console.log(`│ ${cell(rightCreditLabel(left, credit))} │`);
+      console.log(`│ ${cell(renderSessionLine(s, max))} │`);
     }
 
     console.log("├" + "─".repeat(WIDTH + 2) + "┤");
@@ -320,12 +408,13 @@ function render() {
 
     console.log(`│ ${cell(rightCredit(totalLeft, totals.credits))} │`);
     console.log("├" + "─".repeat(WIDTH + 2) + "┤");
-    console.log(
-      `│ ${cell(rightCredit(`Week: ${fmt(thisWeek.total)} I:${fmt(thisWeek.input)} O:${fmt(thisWeek.output)} C:${fmt(thisWeek.cacheRead)} R:${fmt(thisWeek.reasoning)}`, thisWeek.credits))} │`,
-    );
-    console.log(
-      `│ ${cell(rightCredit(`Month: ${fmt(thisMonth.total)} I:${fmt(thisMonth.input)} O:${fmt(thisMonth.output)} C:${fmt(thisMonth.cacheRead)} R:${fmt(thisMonth.reasoning)}`, thisMonth.credits))} │`,
-    );
+    for (const line of renderPeriodLines("Week", thisWeekSessions)) {
+      console.log(`│ ${cell(line)} │`);
+    }
+    console.log("├" + "─".repeat(WIDTH + 2) + "┤");
+    for (const line of renderPeriodLines("Month", thisMonthSessions)) {
+      console.log(`│ ${cell(line)} │`);
+    }
     if (partialData) {
       console.log("├" + "─".repeat(WIDTH + 2) + "┤");
       console.log(

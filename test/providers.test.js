@@ -2,14 +2,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 
-import { renderSessionMetrics } from "../bin/ctop.js";
 import {
+  renderProviderTotals,
+  renderPeriodLines,
+  renderSessionLine,
+  renderSessionMetrics,
+} from "../bin/ctop.js";
+import {
+  collectProviderTotals,
   collectSessionsForDate,
   collectUsageTotals,
   hasPartialData,
 } from "../lib/providers.js";
 
 const FIXTURE_HOME = path.resolve("test/fixtures/home");
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+function stripAnsi(text) {
+  return text.replace(ANSI_RE, "");
+}
 
 const helpers = {
   dateMinus(date, days) {
@@ -66,6 +77,7 @@ test("collect sessions keeps codex parsing and discovers copilot", () => {
   assert.ok(cli);
   assert.equal(cli.provider, "copilot");
   assert.equal(cli.providerTag, "GH");
+  assert.equal(cli.sourceLabel, "cli");
   assert.equal(cli.name, "9db2…df1b cli");
   assert.equal(cli.model, "g5-mini");
   assert.equal(cli.time, "11:09");
@@ -81,6 +93,7 @@ test("collect sessions keeps codex parsing and discovers copilot", () => {
   assert.ok(vscode);
   assert.equal(vscode.provider, "copilot");
   assert.equal(vscode.providerTag, "GH");
+  assert.equal(vscode.sourceLabel, "vscode");
   assert.equal(vscode.name, "0262…9d2b vscode");
   assert.equal(vscode.model, "g4.1");
   assert.equal(vscode.time, "11:54");
@@ -149,6 +162,131 @@ test("copilot rows with real tokens keep token display", () => {
   assert.match(rendered, /I:150 O:50 C:40 R:10/);
   assert.doesNotMatch(rendered, /msg:/);
   assert.doesNotMatch(rendered, /req:/);
+});
+
+test("row layout shows source near provider", () => {
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-04",
+    lookbackDays: 14,
+    helpers,
+    homeDir: FIXTURE_HOME,
+  });
+
+  const cli = sessions.find((session) => session.source === "cli");
+  const vscode = sessions.find((session) => session.source === "vscode");
+  assert.ok(cli);
+  assert.ok(vscode);
+
+  assert.match(stripAnsi(renderSessionLine(cli, cli.total)), /11:09 GH cli\s+g5-mini/);
+  assert.match(
+    stripAnsi(renderSessionLine(vscode, cli.total)),
+    /11:54 GH vscode\s+g4.1/,
+  );
+});
+
+test("provider totals keep token totals and metadata-only msg/req totals", () => {
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-04",
+    lookbackDays: 14,
+    helpers,
+    homeDir: FIXTURE_HOME,
+  });
+
+  const totals = collectProviderTotals(sessions);
+  const cx = totals.find((total) => total.providerTag === "CX");
+  const gh = totals.find((total) => total.providerTag === "GH");
+
+  assert.ok(cx);
+  assert.equal(cx.total, 230);
+  assert.equal(cx.input, 100);
+  assert.equal(cx.output, 50);
+  assert.equal(cx.creditAvailable, true);
+  assert.equal(cx.metadataMessageCount, 0);
+  assert.equal(cx.metadataRequestCount, 0);
+
+  assert.ok(gh);
+  assert.equal(gh.total, 250);
+  assert.equal(gh.input, 150);
+  assert.equal(gh.output, 50);
+  assert.equal(gh.cacheRead, 40);
+  assert.equal(gh.reasoning, 10);
+  assert.equal(gh.creditAvailable, false);
+  assert.equal(gh.metadataMessageCount, 2);
+  assert.equal(gh.metadataRequestCount, 1);
+});
+
+test("Week and Month show CX and GH totals", () => {
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-04",
+    lookbackDays: 14,
+    helpers,
+    homeDir: FIXTURE_HOME,
+  });
+
+  const week = renderPeriodLines("Week", sessions).map(stripAnsi).join("\n");
+  const month = renderPeriodLines("Month", sessions).map(stripAnsi).join("\n");
+
+  assert.match(week, /^Week$/m);
+  assert.match(week, /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS$/m);
+  assert.match(week, /^ALL\s+480\s+250\s+100\s+120\s+10\s+-\s+-\s+0\.05$/m);
+  assert.match(week, /^CX\s+230\s+100\s+50\s+80\s+0\s+-\s+-\s+0\.05$/m);
+  assert.match(week, /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--$/m);
+
+  assert.match(month, /^Month$/m);
+  assert.match(month, /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--$/m);
+});
+
+test("renderProviderTotals keeps fixed columns and dims unavailable values", () => {
+  const rendered = renderProviderTotals(
+    "Week",
+    {
+      total: 11_300_000,
+      input: 11_200_000,
+      output: 133_000,
+      cacheRead: 9_700_000,
+      reasoning: 34_000,
+      credits: 806.91,
+    },
+    [
+      {
+        providerTag: "CX",
+        total: 11_300_000,
+        input: 11_100_000,
+        output: 132_000,
+        cacheRead: 9_700_000,
+        reasoning: 34_000,
+        metadataMessageCount: 0,
+        metadataRequestCount: 0,
+        credits: 806.91,
+        creditAvailable: true,
+      },
+      {
+        providerTag: "GH",
+        total: 0,
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        reasoning: 0,
+        metadataMessageCount: 6,
+        metadataRequestCount: 3,
+        credits: 0,
+        creditAvailable: false,
+      },
+    ],
+  );
+  const lines = rendered.map(stripAnsi);
+
+  assert.deepEqual(lines, [
+    "Week",
+    "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
+    "ALL       11.3M    11.2M     133k     9.7M      34k    -    -   806.91",
+    "CX        11.3M    11.1M     132k     9.7M      34k    -    -   806.91",
+    "GH           --       --       --       --       --    6    3       --",
+  ]);
+
+  assert.match(rendered[1], /\x1b\[2m/);
+  assert.match(rendered[2], /\x1b\[33m806\.91\x1b\[0m/);
+  assert.match(rendered[4], /\x1b\[2m--\x1b\[0m/);
 });
 
 test("missing copilot path does not break codex collection", () => {
