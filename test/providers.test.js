@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 
 import {
-  renderCodexLimitLine,
+  renderCodexLimitCell,
   renderProviderTotals,
   renderPeriodLines,
   renderSessionLine,
@@ -181,10 +181,13 @@ test("row layout shows source near provider", () => {
   assert.ok(cli);
   assert.ok(vscode);
 
-  assert.match(stripAnsi(renderSessionLine(cli, cli.total)), /11:09 GH cli\s+g5-mini/);
+  assert.match(
+    stripAnsi(renderSessionLine(cli, cli.total)),
+    /^11:09\s+GH cli\s+g5-mini\s+[█░]+\s+250\s+150\s+50\s+40\s+10\s+9db2…df1b cli\s+--$/,
+  );
   assert.match(
     stripAnsi(renderSessionLine(vscode, cli.total)),
-    /11:54 GH vscode\s+g4.1/,
+    /^11:54\s+GH vscode\s+g4\.1\s+[·░]+\s+--\s+--\s+--\s+--\s+--\s+0262…9d2b vscode.*\s+--$/,
   );
 });
 
@@ -345,6 +348,22 @@ test("period lines stay unchanged when no Codex limits configured", () => {
   ]);
 });
 
+test("period lines still render with empty sessions", () => {
+  const week = renderPeriodLines("Week", []).map(stripAnsi);
+  const month = renderPeriodLines("Month", [], {
+    codexMonthlyLimit: 100,
+  }).map(stripAnsi);
+
+  assert.deepEqual(week, [
+    "Week",
+    "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
+    "ALL          --       --       --       --       --    -    -     0.00",
+  ]);
+  assert.match(month[0], /^Month$/);
+  assert.match(month[1], /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS\s+LIMIT\s*$/);
+  assert.match(month[2], /^ALL\s+--\s+--\s+--\s+--\s+--\s+-\s+-\s+0\.00\s+░+\s+0%/);
+});
+
 test("period lines append Codex limit progress for CX only", () => {
   const sessions = collectSessionsForDate({
     selectedDate: "2026-06-04",
@@ -360,8 +379,24 @@ test("period lines append Codex limit progress for CX only", () => {
     codexMonthlyLimit: 0.06,
   }).map(stripAnsi);
 
-  assert.equal(week.at(-1), "CX 0.05 / 0.05 (102%) ████████████████ 🔥");
-  assert.equal(month.at(-1), "CX 0.05 / 0.06 (85%) ██████████████░░");
+  assert.match(week[1], /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS\s+LIMIT\s*$/);
+  assert.equal(
+    week[2],
+    "ALL         480      250      100      120       10    -    -     0.05 ██████████ 102% 🔥",
+  );
+  assert.equal(
+    week[3],
+    "CX          230      100       50       80        0    -    -     0.05 ██████████ 102% 🔥",
+  );
+  assert.match(week[4], /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--\s+-\s*$/);
+  assert.equal(
+    month[2],
+    "ALL         480      250      100      120       10    -    -     0.05 █████████░ 85%   ",
+  );
+  assert.equal(
+    month[3],
+    "CX          230      100       50       80        0    -    -     0.05 █████████░ 85%   ",
+  );
 });
 
 test("renderProviderTotals keeps fixed columns and dims unavailable values", () => {
@@ -438,29 +473,29 @@ test("resolveCodexLimit uses env when CLI absent", () => {
   );
 });
 
-test("renderCodexLimitLine colors thresholds and progress bar", () => {
+test("renderCodexLimitCell colors thresholds and progress bar", () => {
   assert.equal(
-    stripAnsi(renderCodexLimitLine("Week", 3642.73, 4000)),
-    "CX 3642.73 / 4000 (91%) ███████████████░",
+    stripAnsi(renderCodexLimitCell(3642.73, 4000)),
+    "█████████░ 91%",
   );
-  assert.match(renderCodexLimitLine("Week", 3642.73, 4000), /\x1b\[33m\(91%\)/);
+  assert.match(renderCodexLimitCell(3642.73, 4000), /\x1b\[33m/);
 
   assert.equal(
-    stripAnsi(renderCodexLimitLine("Month", 12495.58, 15000)),
-    "CX 12495.58 / 15000 (83%) █████████████░░░",
+    stripAnsi(renderCodexLimitCell(12495.58, 15000)),
+    "████████░░ 83%",
   );
 
   assert.equal(
-    stripAnsi(renderCodexLimitLine("Week", 96, 100)),
-    "CX 96.00 / 100 (96%) ███████████████░",
+    stripAnsi(renderCodexLimitCell(96, 100)),
+    "██████████ 96%",
   );
-  assert.match(renderCodexLimitLine("Week", 96, 100), /\x1b\[31m\(96%\)/);
+  assert.match(renderCodexLimitCell(96, 100), /\x1b\[31m/);
 
   assert.equal(
-    stripAnsi(renderCodexLimitLine("Week", 101, 100)),
-    "CX 101.00 / 100 (101%) ████████████████ 🔥",
+    stripAnsi(renderCodexLimitCell(101, 100)),
+    "██████████ 101% 🔥",
   );
-  assert.match(renderCodexLimitLine("Week", 101, 100), /🔥/);
+  assert.match(renderCodexLimitCell(101, 100), /🔥/);
 });
 
 test("missing copilot path does not break codex collection", () => {

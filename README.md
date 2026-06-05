@@ -34,7 +34,7 @@ Unlike batch reporting tools, `ctop` provides a **live terminal dashboard** with
 
 ---
 
-## Installation
+## Installation & Update
 
 ### From GitHub
 

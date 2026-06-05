@@ -211,6 +211,11 @@ function rightCreditLabel(left, creditLabel) {
   return left + " ".repeat(Math.max(1, spaces)) + right;
 }
 
+function fit(text, width, align = "left") {
+  const value = `${text}`.slice(0, width);
+  return align === "right" ? value.padStart(width) : value.padEnd(width);
+}
+
 function padVisible(value, width, align = "left") {
   const text = `${value}`;
   const spaces = " ".repeat(Math.max(0, width - strip(text).length));
@@ -263,6 +268,34 @@ function risk(s) {
   return `${G}●${Z}`;
 }
 
+function sourceCell(session, width) {
+  const value = fit(providerSourceLabel(session), width);
+  const color = providerColor(session.providerTag);
+  return color === Z ? value : `${color}${value}${Z}`;
+}
+
+function sessionNameCell(session, width) {
+  const meta = [];
+  if (!session.usageAvailable && session.provider === "copilot" && session.messageCount > 0) {
+    meta.push(`msg:${session.messageCount}`);
+  }
+  if (!session.usageAvailable && session.provider === "copilot" && session.requestCount > 0) {
+    meta.push(`req:${session.requestCount}`);
+  }
+  const suffix = meta.length > 0 ? ` ${meta.join(" ")}` : "";
+  return `${D}${fit(`${session.name}${suffix}`, width)}${Z}`;
+}
+
+function sessionUsageCell(value, available, width) {
+  if (!available) return padVisible(`${D}--${Z}`, width, "right");
+  return padVisible(fmt(value), width, "right");
+}
+
+function sessionBarCell(session, max, width = 16) {
+  if (!session.usageAvailable) return `${D}${"·".repeat(width)}${Z}`;
+  return bar(session, max, width);
+}
+
 export function renderSessionMetrics(s, max) {
   if (s.usageAvailable) {
     return (
@@ -279,13 +312,38 @@ export function renderSessionMetrics(s, max) {
 }
 
 export function renderSessionLine(s, max) {
-  const metrics = renderSessionMetrics(s, max);
   const credit = s.creditAvailable ? s.credits.toFixed(2) : "--";
-  const left =
-    `${C}${s.time}${Z} ${providerSourceLabel(s).padEnd(9)} ${s.model.padEnd(8).slice(0, 8)} ` +
-    `${metrics} ${D}${s.name}${Z}`;
+  return [
+    `${C}${fit(s.time, 5)}${Z}`,
+    sourceCell(s, 9),
+    fit(s.model, 8),
+    sessionBarCell(s, max),
+    sessionUsageCell(s.total, s.usageAvailable, 6),
+    sessionUsageCell(s.input, s.usageAvailable, 6),
+    sessionUsageCell(s.output, s.usageAvailable, 6),
+    sessionUsageCell(s.cacheRead, s.usageAvailable, 6),
+    sessionUsageCell(s.reasoning, s.usageAvailable, 6),
+    sessionNameCell(s, 18),
+    padVisible(s.creditAvailable ? `${Y}${credit}${Z}` : `${D}--${Z}`, 8, "right"),
+  ].join(" ");
+}
 
-  return rightCreditLabel(left, credit);
+function renderSessionHeader() {
+  const columns = [
+    ["TIME", 5, "left"],
+    ["SRC", 9, "left"],
+    ["MODEL", 8, "left"],
+    ["BAR", 16, "left"],
+    ["TOTAL", 6, "right"],
+    ["INPUT", 6, "right"],
+    ["OUTPUT", 6, "right"],
+    ["CACHE", 6, "right"],
+    ["REASON", 6, "right"],
+    ["SESSION", 18, "left"],
+    ["CREDITS", 8, "right"],
+  ];
+
+  return `${D}${columns.map(([label, width, align]) => fit(label, width, align)).join(" ")}${Z}`;
 }
 
 function collectSessionsForRange(startDate, endDate) {
@@ -346,8 +404,8 @@ function findCodexCredits(providerTotals) {
 
 function limitColor(percent) {
   if (percent > 100) return R;
-  if (percent > 95) return R;
-  if (percent > 80) return Y;
+  if (percent >= 95) return R;
+  if (percent >= 80) return Y;
   return Z;
 }
 
@@ -360,19 +418,24 @@ function limitBar(percent, width = 16) {
   return "█".repeat(filled) + D + "░".repeat(width - filled) + Z;
 }
 
-export function renderCodexLimitLine(periodName, credits, limit) {
+export function renderCodexLimitCell(credits, limit) {
   if (!(limit > 0)) return null;
 
   const percent = Math.round((credits / limit) * 100);
   const color = limitColor(percent);
   const marker = limitMarker(percent);
-  const pct = `${percent}%`;
-  const line = `${C}CX${Z} ${credits.toFixed(2)} / ${limit} ${color}(${pct})${Z}`;
-  const progress = `${color}${limitBar(percent)}${Z}`;
-  return marker ? `${line} ${progress} ${marker}` : `${line} ${progress}`;
+  const content = `${color}${limitBar(percent, 10)} ${percent}%${Z}`;
+  return marker ? `${content} ${marker}` : content;
 }
 
-export function renderProviderTotals(periodName, totals, providerTotals) {
+function periodLimitCell(providerTag, credits, limit, width) {
+  if (!(limit > 0)) return null;
+  if (providerTag !== "ALL" && providerTag !== "CX") return padVisible(`${D}-${Z}`, width);
+  return padVisible(renderCodexLimitCell(credits, limit), width);
+}
+
+export function renderProviderTotals(periodName, totals, providerTotals, options = {}) {
+  const limit = options.codexLimit ?? null;
   const columns = [
     ["SRC", 6, "left"],
     ["TOTAL", 8, "right"],
@@ -384,11 +447,13 @@ export function renderProviderTotals(periodName, totals, providerTotals) {
     ["REQ", 4, "right"],
     ["CREDITS", 8, "right"],
   ];
+  if (limit > 0) columns.push(["LIMIT", 17, "left"]);
 
   const header = `${D}${columns
     .map(([label, width, align]) => padVisible(label, width, align))
     .join(" ")}${Z}`;
 
+  const codexCredits = findCodexCredits(providerTotals);
   const rows = [
     {
       providerTag: "ALL",
@@ -408,8 +473,8 @@ export function renderProviderTotals(periodName, totals, providerTotals) {
   return [
     periodName,
     header,
-    ...rows.map((total) =>
-      [
+    ...rows.map((total) => {
+      const cells = [
         providerCell(total.providerTag, 6, total.providerTag),
         usageCell(total, "total", 8),
         usageCell(total, "input", 8),
@@ -419,19 +484,19 @@ export function renderProviderTotals(periodName, totals, providerTotals) {
         metaCell(total.metadataMessageCount, 4),
         metaCell(total.metadataRequestCount, 4),
         creditsCell(total.credits, total.creditAvailable, 8),
-      ].join(" "),
-    ),
+      ];
+      if (limit > 0) cells.push(periodLimitCell(total.providerTag, codexCredits, limit, 17));
+      return cells.join(" ");
+    }),
   ];
 }
 
 export function renderPeriodLines(label, sessions, options = {}) {
   const totals = collectUsageTotals(sessions);
   const providers = collectProviderTotals(sessions);
-  const lines = renderProviderTotals(label, totals, providers);
-  const limit = label === "Week" ? options.codexWeeklyLimit : options.codexMonthlyLimit;
-  const limitLine = renderCodexLimitLine(label, findCodexCredits(providers), limit);
-  if (limitLine) lines.push(limitLine);
-  return lines;
+  return renderProviderTotals(label, totals, providers, {
+    codexLimit: label === "Week" ? options.codexWeeklyLimit : options.codexMonthlyLimit,
+  });
 }
 
 function render() {
@@ -451,6 +516,8 @@ function render() {
     `│ ${cell(`CTop ${date}  ACTIVE TODAY  ${B}in${Z} ${G}out${Z} ${X}cache${Z} ${M}create${Z}`)} │`,
   );
   console.log("├" + "─".repeat(WIDTH + 2) + "┤");
+  console.log(`│ ${cell(renderSessionHeader())} │`);
+  console.log("├" + "─".repeat(WIDTH + 2) + "┤");
 
   if (sessions.length === 0) {
     console.log(
@@ -468,24 +535,25 @@ function render() {
       `I:${fmt(totals.input)} O:${fmt(totals.output)} C:${fmt(totals.cacheRead)} R:${fmt(totals.reasoning)}`;
 
     console.log(`│ ${cell(rightCredit(totalLeft, totals.credits))} │`);
+  }
+
+  console.log("├" + "─".repeat(WIDTH + 2) + "┤");
+  for (const line of renderPeriodLines("Week", thisWeekSessions, {
+    codexWeeklyLimit: CODEX_WEEKLY_LIMIT,
+  })) {
+    console.log(`│ ${cell(line)} │`);
+  }
+  console.log("├" + "─".repeat(WIDTH + 2) + "┤");
+  for (const line of renderPeriodLines("Month", thisMonthSessions, {
+    codexMonthlyLimit: CODEX_MONTHLY_LIMIT,
+  })) {
+    console.log(`│ ${cell(line)} │`);
+  }
+  if (partialData) {
     console.log("├" + "─".repeat(WIDTH + 2) + "┤");
-    for (const line of renderPeriodLines("Week", thisWeekSessions, {
-      codexWeeklyLimit: CODEX_WEEKLY_LIMIT,
-    })) {
-      console.log(`│ ${cell(line)} │`);
-    }
-    console.log("├" + "─".repeat(WIDTH + 2) + "┤");
-    for (const line of renderPeriodLines("Month", thisMonthSessions, {
-      codexMonthlyLimit: CODEX_MONTHLY_LIMIT,
-    })) {
-      console.log(`│ ${cell(line)} │`);
-    }
-    if (partialData) {
-      console.log("├" + "─".repeat(WIDTH + 2) + "┤");
-      console.log(
-        `│ ${cell(`${Y}Note:${Z} totals partial; some Copilot usage/credits unavailable`)} │`,
-      );
-    }
+    console.log(
+      `│ ${cell(`${Y}Note:${Z} totals partial; some Copilot usage/credits unavailable`)} │`,
+    );
   }
 
   console.log("╰" + "─".repeat(WIDTH + 2) + "╯");
