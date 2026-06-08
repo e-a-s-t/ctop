@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 import {
+  collectUsageForDate,
   resolveCodexLimit,
   resolvePricingFile,
 } from "../bin/ctop.js";
@@ -31,6 +33,7 @@ import {
 } from "../bin/providers/index.js";
 
 const FIXTURE_HOME = path.resolve("test/fixtures/home");
+const EMPTY_FIXTURE_HOME = path.resolve("test/fixtures/codex-only-home");
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
 function stripAnsi(text) {
@@ -118,6 +121,139 @@ test("collect sessions keeps codex parsing and discovers copilot", () => {
   assert.equal(vscode.usageAvailable, false);
   assert.equal(vscode.creditAvailable, false);
   assert.match(vscode.note, /usage\/credits unavailable/i);
+});
+
+test("collectUsageForDate single day always returns iterable sessions", () => {
+  const result = collectUsageForDate("2026-06-04", {
+    lookbackDays: 14,
+    homeDir: FIXTURE_HOME,
+    helpers,
+    pricing: DEFAULT_PRICING,
+  });
+
+  assert.ok(result.sessions);
+  assert.ok(Array.isArray(result.sessions));
+  assert.equal(result.sessions.length, 3);
+});
+
+test("collectUsageForDate empty day returns empty iterable sessions", () => {
+  const result = collectUsageForDate("2026-06-03", {
+    lookbackDays: 14,
+    homeDir: FIXTURE_HOME,
+    helpers,
+    pricing: DEFAULT_PRICING,
+  });
+
+  assert.ok(result.sessions);
+  assert.ok(Array.isArray(result.sessions));
+  assert.deepEqual(result.sessions, []);
+});
+
+test("collectUsageForDate mixed days keep sessions iterable across range", () => {
+  const dates = ["2026-06-03", "2026-06-04", "2026-06-05"];
+  const sessions = dates.flatMap((date) =>
+    collectUsageForDate(date, {
+      lookbackDays: 14,
+      homeDir: FIXTURE_HOME,
+      helpers,
+      pricing: DEFAULT_PRICING,
+    }).sessions,
+  );
+
+  assert.ok(Array.isArray(sessions));
+  assert.equal(sessions.length, 3);
+});
+
+test("collectUsageForDate multi-day empty range stays iterable", () => {
+  const dates = ["2026-06-01", "2026-06-02", "2026-06-03"];
+  const sessions = dates.flatMap((date) =>
+    collectUsageForDate(date, {
+      lookbackDays: 14,
+      homeDir: EMPTY_FIXTURE_HOME,
+      helpers,
+      pricing: DEFAULT_PRICING,
+    }).sessions,
+  );
+
+  assert.ok(Array.isArray(sessions));
+  assert.deepEqual(sessions, []);
+});
+
+test("bin/ctop.js render path does not throw sessions iterable regression", async () => {
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["bin/ctop.js"], {
+      cwd: path.resolve("."),
+      env: {
+        ...process.env,
+        HOME: FIXTURE_HOME,
+        AI_USAGE_DATE: "2026-06-04",
+        AI_USAGE_REFRESH: "60",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      fn();
+    };
+
+    const timer = setTimeout(() => {
+      finish(() => {
+        try {
+          assert.doesNotMatch(
+            stderr,
+            /TypeError: collectUsageForDate\(\.\.\.\)\.sessions is not iterable/,
+          );
+          assert.match(stdout, /CTop 2026-06-04/);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }, 500);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      finish(() => reject(error));
+    });
+
+    child.on("exit", (code, signal) => {
+      if (settled) return;
+      finish(() => {
+        if (code === 0 || signal === "SIGTERM") {
+          try {
+            assert.doesNotMatch(
+              stderr,
+              /TypeError: collectUsageForDate\(\.\.\.\)\.sessions is not iterable/,
+            );
+            assert.match(stdout, /CTop 2026-06-04/);
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+          return;
+        }
+
+        reject(
+          new Error(`bin/ctop.js exited unexpectedly: code=${code} signal=${signal}\n${stderr}`),
+        );
+      });
+    });
+  });
 });
 
 test("totals ignore rows with unavailable copilot usage and mark partial", () => {

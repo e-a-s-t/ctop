@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.1
+
+### Fixed
+
+- Fixed a regression introduced during the provider/render refactors that could cause:
+
+  TypeError: collectUsageForDate(...).sessions is not iterable
+
+- Restored correct session collection across date ranges.
+
+### Tests
+
+- Added regression coverage reproducing the crash path to prevent future breakage.
+
 ## v0.2.0
 
 ### Added

@@ -189,6 +189,25 @@ function weekEnd(date) {
   return datePlus(weekStart(date), 6);
 }
 
+export function collectUsageForDate(date, options = {}) {
+  const {
+    lookbackDays = LOOKBACK_DAYS,
+    homeDir = HOME,
+    helpers = { dateMinus, localDate, localTime },
+    pricing = PRICING,
+  } = options;
+
+  return {
+    sessions: collectSessionsForDate({
+      selectedDate: date,
+      lookbackDays,
+      homeDir,
+      helpers,
+      pricing,
+    }),
+  };
+}
+
 function collectSessionsForRange(startDate, endDate) {
   const sessions = [];
 
@@ -199,19 +218,9 @@ function collectSessionsForRange(startDate, endDate) {
   return sessions;
 }
 
-function collectUsageForDate(date) {
-  return collectSessionsForDate({
-    selectedDate: date,
-    lookbackDays: LOOKBACK_DAYS,
-    homeDir: HOME,
-    helpers: { dateMinus, localDate, localTime },
-    pricing: PRICING,
-  });
-}
-
 function render() {
   const date = currentDate();
-  const sessions = collectUsageForDate(date);
+  const { sessions } = collectUsageForDate(date);
   const thisWeekSessions = collectSessionsForRange(weekStart(date), weekEnd(date));
   const thisMonthSessions = collectSessionsForRange(monthStart(date), monthEnd(date));
   const partialData = hasPartialData(sessions);
