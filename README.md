@@ -56,6 +56,7 @@ ctop
 ctop --date YYYY-MM-DD
 ctop --refresh 5
 ctop --warn-tokens 2000000
+ctop --pricing-file ./my-pricing.json
 ctop --codex-weekly-limit 4000
 ctop --codex-monthly-limit 15000
 ```
@@ -67,6 +68,7 @@ ctop --codex-monthly-limit 15000
 | `AI_USAGE_DATE` | Date to display |
 | `AI_USAGE_REFRESH` | Refresh interval |
 | `AI_USAGE_WARN_TOKENS` | Warning threshold |
+| `CTOP_PRICING_FILE` | Local pricing override JSON |
 | `CTOP_CODEX_WEEKLY_LIMIT` | User-defined weekly Codex credit calibration |
 | `CTOP_CODEX_MONTHLY_LIMIT` | User-defined monthly Codex credit calibration |
 
@@ -80,6 +82,43 @@ ctop
 
 Codex limits are user-defined calibrations based on observed Codex usage. They are not official OpenAI quotas or limits.
 CLI flags override environment variables.
+
+## Custom pricing file
+
+`ctop` ships default pricing in `bin/pricing/default-pricing.json`.
+All prices are per 1M tokens.
+
+CLI flag takes precedence over environment variable:
+
+```bash
+ctop --pricing-file ./my-pricing.json
+CTOP_PRICING_FILE=./my-pricing.json ctop
+```
+
+JSON shape:
+
+```json
+{
+  "models": {
+    "gpt-5.4": {
+      "input": 2.5,
+      "cachedInput": 0.25,
+      "output": 15
+    }
+  },
+  "aliases": {
+    "g5.4": "gpt-5.4"
+  }
+}
+```
+
+Model lookup order:
+1. Exact model key
+2. Alias target from `aliases`
+3. `models.default`
+
+If alias points to missing model, `ctop` falls back to `models.default`.
+Partial overrides merge onto bundled defaults.
 
 ---
 

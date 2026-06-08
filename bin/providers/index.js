@@ -1,12 +1,12 @@
 import codex from "./codex.js";
 import copilot from "./copilot.js";
+import { DEFAULT_PRICING } from "../pricing/index.js";
 
 export {
   collectProviderTotals,
   collectUsageTotals,
   estimateCredits,
   hasPartialData,
-  MODEL_PRICING,
 } from "./shared.js";
 
 const providers = [codex, copilot];
@@ -20,6 +20,7 @@ export function collectSessionsForDate({
   lookbackDays,
   helpers,
   homeDir,
+  pricing = DEFAULT_PRICING,
 }) {
   return providers
     .filter((provider) => provider.isAvailable({ home: homeDir }))
@@ -29,6 +30,7 @@ export function collectSessionsForDate({
         date: selectedDate,
         lookbackDays,
         helpers,
+        pricing,
       }),
     )
     .sort((a, b) => a.time.localeCompare(b.time));

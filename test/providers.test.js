@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import {
@@ -9,14 +11,19 @@ import {
   renderSessionLine,
   renderSessionMetrics,
   resolveCodexLimit,
+  resolvePricingFile,
 } from "../bin/ctop.js";
+import {
+  DEFAULT_PRICING,
+  loadPricing,
+  resolveModelPricing,
+} from "../bin/pricing/index.js";
 import {
   collectProviderTotals,
   collectSessionsForDate,
   collectUsageTotals,
   estimateCredits,
   hasPartialData,
-  MODEL_PRICING,
 } from "../bin/providers/index.js";
 
 const FIXTURE_HOME = path.resolve("test/fixtures/home");
@@ -66,6 +73,7 @@ test("collect sessions keeps codex parsing and discovers copilot", () => {
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   assert.equal(sessions.length, 3);
@@ -114,6 +122,7 @@ test("totals ignore rows with unavailable copilot usage and mark partial", () =>
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const totals = collectUsageTotals(sessions);
@@ -133,6 +142,7 @@ test("copilot rows without tokens show msg/req metadata", () => {
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const vscode = sessions.find((session) => session.source === "vscode");
@@ -157,6 +167,7 @@ test("copilot rows with real tokens keep token display", () => {
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const cli = sessions.find((session) => session.source === "cli");
@@ -174,6 +185,7 @@ test("row layout shows source near provider", () => {
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const cli = sessions.find((session) => session.source === "cli");
@@ -197,6 +209,7 @@ test("provider totals keep token totals and metadata-only msg/req totals", () =>
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const totals = collectProviderTotals(sessions);
@@ -230,7 +243,7 @@ test("estimateCredits bills cacheCreate at input rate", () => {
     cacheRead: 1_000_000,
     output: 1_000_000,
     reasoning: 1_000_000,
-  });
+  }, DEFAULT_PRICING);
   const withCacheCreate = estimateCredits({
     model: "g5.2-codex",
     input: 1_000_000,
@@ -238,17 +251,17 @@ test("estimateCredits bills cacheCreate at input rate", () => {
     cacheRead: 1_000_000,
     output: 1_000_000,
     reasoning: 1_000_000,
-  });
+  }, DEFAULT_PRICING);
 
   assert.equal(
     withoutCacheCreate,
-    MODEL_PRICING["g5.2-codex"].input +
-      MODEL_PRICING["g5.2-codex"].cache +
-      MODEL_PRICING["g5.2-codex"].output,
+    DEFAULT_PRICING.models["gpt-5.2-codex"].input +
+      DEFAULT_PRICING.models["gpt-5.2-codex"].cachedInput +
+      DEFAULT_PRICING.models["gpt-5.2-codex"].output,
   );
   assert.equal(
     withCacheCreate - withoutCacheCreate,
-    (500_000 / 1_000_000) * MODEL_PRICING["g5.2-codex"].input,
+    (500_000 / 1_000_000) * DEFAULT_PRICING.models["gpt-5.2-codex"].input,
   );
 });
 
@@ -262,18 +275,18 @@ test("estimateCredits ignores reasoning and preserves behavior when cacheCreate 
   };
 
   const expected =
-    2 * MODEL_PRICING["g5.4"].input +
-    3 * MODEL_PRICING["g5.4"].cache +
-    4 * MODEL_PRICING["g5.4"].output;
+    2 * DEFAULT_PRICING.models["gpt-5.4"].input +
+    3 * DEFAULT_PRICING.models["gpt-5.4"].cachedInput +
+    4 * DEFAULT_PRICING.models["gpt-5.4"].output;
 
-  assert.equal(estimateCredits(baseSession), expected);
+  assert.equal(estimateCredits(baseSession, DEFAULT_PRICING), expected);
   assert.equal(
-    estimateCredits({ ...baseSession, reasoning: 0 }),
-    estimateCredits({ ...baseSession, reasoning: 999_999 }),
+    estimateCredits({ ...baseSession, reasoning: 0 }, DEFAULT_PRICING),
+    estimateCredits({ ...baseSession, reasoning: 999_999 }, DEFAULT_PRICING),
   );
 });
 
-test("estimateCredits resolves aliases and unknown models use default pricing", () => {
+test("estimateCredits exact model lookup uses exact model key", () => {
   const usage = {
     input: 1_000_000,
     cacheCreate: 1_000_000,
@@ -283,20 +296,137 @@ test("estimateCredits resolves aliases and unknown models use default pricing", 
   };
 
   assert.equal(
-    estimateCredits({ model: "gpt-5.2-codex", ...usage }),
-    estimateCredits({ model: "g5.2-codex", ...usage }),
+    estimateCredits({ model: "gpt-5.2-codex", ...usage }, DEFAULT_PRICING),
+    2 * DEFAULT_PRICING.models["gpt-5.2-codex"].input +
+      DEFAULT_PRICING.models["gpt-5.2-codex"].cachedInput +
+      DEFAULT_PRICING.models["gpt-5.2-codex"].output,
+  );
+});
+
+test("estimateCredits alias lookup resolves aliases", () => {
+  const usage = {
+    input: 1_000_000,
+    cacheCreate: 1_000_000,
+    cacheRead: 1_000_000,
+    output: 1_000_000,
+    reasoning: 123_456,
+  };
+
+  assert.equal(
+    estimateCredits({ model: "g5.2-codex", ...usage }, DEFAULT_PRICING),
+    estimateCredits({ model: "gpt-5.2-codex", ...usage }, DEFAULT_PRICING),
   );
   assert.equal(
-    estimateCredits({ model: "gpt-5.1-codex-mini", ...usage }),
-    estimateCredits({ model: "codex-mini-latest", ...usage }),
+    estimateCredits({ model: "gpt-5.1-codex-mini", ...usage }, DEFAULT_PRICING),
+    estimateCredits({ model: "codex-mini-latest", ...usage }, DEFAULT_PRICING),
   );
   assert.equal(
-    estimateCredits({ model: "gpt-5.5", ...usage }),
-    estimateCredits({ model: "g5.5", ...usage }),
+    estimateCredits({ model: "gpt-5.5", ...usage }, DEFAULT_PRICING),
+    estimateCredits({ model: "g5.5", ...usage }, DEFAULT_PRICING),
   );
+});
+
+test("estimateCredits unknown models fall back to default pricing", () => {
+  const usage = {
+    input: 1_000_000,
+    cacheCreate: 1_000_000,
+    cacheRead: 1_000_000,
+    output: 1_000_000,
+    reasoning: 123_456,
+  };
+
   assert.equal(
-    estimateCredits({ model: "totally-unknown-model", ...usage }),
-    estimateCredits({ model: "default", ...usage }),
+    estimateCredits({ model: "totally-unknown-model", ...usage }, DEFAULT_PRICING),
+    estimateCredits({ model: "default", ...usage }, DEFAULT_PRICING),
+  );
+});
+
+test("estimateCredits alias target missing falls back to default pricing", () => {
+  const pricing = {
+    models: {
+      default: { input: 5, cachedInput: 1, output: 10 },
+    },
+    aliases: {
+      broken: "missing-model",
+    },
+  };
+
+  assert.deepEqual(
+    resolveModelPricing(pricing, "broken"),
+    pricing.models.default,
+  );
+});
+
+test("loadPricing partial override merges with defaults", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctop-pricing-"));
+  const file = path.join(dir, "pricing.json");
+
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      models: {
+        "gpt-5.4": {
+          input: 99,
+        },
+      },
+      aliases: {
+        local: "gpt-5.4",
+      },
+    }),
+  );
+
+  const pricing = loadPricing({ pricingFile: file });
+  assert.equal(pricing.models["gpt-5.4"].input, 99);
+  assert.equal(
+    pricing.models["gpt-5.4"].cachedInput,
+    DEFAULT_PRICING.models["gpt-5.4"].cachedInput,
+  );
+  assert.equal(pricing.aliases.local, "gpt-5.4");
+  assert.equal(pricing.aliases["g5.4"], "gpt-5.4");
+});
+
+test("loadPricing uses env pricing file when CLI absent", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctop-pricing-"));
+  const file = path.join(dir, "env-pricing.json");
+
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      models: {
+        default: { input: 7, cachedInput: 0.7, output: 70 },
+      },
+    }),
+  );
+
+  assert.equal(resolvePricingFile([], { CTOP_PRICING_FILE: file }), file);
+  assert.equal(loadPricing({ pricingFile: file }).models.default.input, 7);
+});
+
+test("resolvePricingFile prefers CLI over env", () => {
+  assert.equal(
+    resolvePricingFile(
+      ["--pricing-file", "./cli-pricing.json"],
+      { CTOP_PRICING_FILE: "./env-pricing.json" },
+    ),
+    "./cli-pricing.json",
+  );
+});
+
+test("loadPricing missing file gives clear error", () => {
+  assert.throws(
+    () => loadPricing({ pricingFile: "/definitely/missing/pricing.json" }),
+    /pricing file not found: .*pricing\.json/,
+  );
+});
+
+test("loadPricing invalid JSON gives clear error", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctop-pricing-"));
+  const file = path.join(dir, "broken.json");
+  fs.writeFileSync(file, "{");
+
+  assert.throws(
+    () => loadPricing({ pricingFile: file }),
+    new RegExp(`Invalid JSON in pricing file: ${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
   );
 });
 
@@ -306,6 +436,7 @@ test("Week and Month show CX and GH totals", () => {
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const week = renderPeriodLines("Week", sessions).map(stripAnsi).join("\n");
@@ -327,6 +458,7 @@ test("period lines stay unchanged when no Codex limits configured", () => {
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const week = renderPeriodLines("Week", sessions).map(stripAnsi);
@@ -370,6 +502,7 @@ test("period lines append Codex limit progress for CX only", () => {
     lookbackDays: 14,
     helpers,
     homeDir: FIXTURE_HOME,
+    pricing: DEFAULT_PRICING,
   });
 
   const week = renderPeriodLines("Week", sessions, {
@@ -504,6 +637,7 @@ test("missing copilot path does not break codex collection", () => {
     lookbackDays: 14,
     helpers,
     homeDir: path.resolve("test/fixtures/codex-only-home"),
+    pricing: DEFAULT_PRICING,
   });
 
   assert.equal(sessions.length, 1);

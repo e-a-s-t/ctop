@@ -1,35 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-
-const GPT_55_PRICING = { input: 125, cache: 12.5, output: 750 };
-const GPT_54_PRICING = { input: 62.5, cache: 6.25, output: 375 };
-const GPT_54_MINI_PRICING = { input: 18.75, cache: 1.875, output: 113 };
-const CODEX_PRICING = { input: 43.75, cache: 4.375, output: 350 };
-
-export const MODEL_PRICING = {
-  "g5.5": GPT_55_PRICING,
-  "gpt-5.5": GPT_55_PRICING,
-  "g5.4": GPT_54_PRICING,
-  "gpt-5.4": GPT_54_PRICING,
-  "g4.1": GPT_54_PRICING,
-  "gpt-4.1": GPT_54_PRICING,
-  "g5-mini": GPT_54_MINI_PRICING,
-  "gpt-5-mini": GPT_54_MINI_PRICING,
-  "g5.4-mini": GPT_54_MINI_PRICING,
-  "gpt-5.4-mini": GPT_54_MINI_PRICING,
-  "g5.2-codex": CODEX_PRICING,
-  "gpt-5.2-codex": CODEX_PRICING,
-  "g5.1-codex": CODEX_PRICING,
-  "gpt-5.1-codex": CODEX_PRICING,
-  "g5-codex": CODEX_PRICING,
-  "gpt-5-codex": CODEX_PRICING,
-  "g5.1-codex-mini": CODEX_PRICING,
-  "gpt-5.1-codex-mini": CODEX_PRICING,
-  "g5.1-codex-max": CODEX_PRICING,
-  "gpt-5.1-codex-max": CODEX_PRICING,
-  "codex-mini-latest": CODEX_PRICING,
-  default: GPT_54_PRICING,
-};
+import { resolveModelPricing } from "../pricing/index.js";
 
 export function emptyUsage() {
   return {
@@ -70,12 +41,12 @@ export function addUsage(a, b) {
   a.credits += b.credits ?? 0;
 }
 
-export function estimateCredits(session) {
-  const pricing = MODEL_PRICING[session.model] ?? MODEL_PRICING.default;
+export function estimateCredits(session, pricing) {
+  const modelPricing = resolveModelPricing(pricing, session.model);
   return (
-    ((session.input + (session.cacheCreate ?? 0)) / 1_000_000) * pricing.input +
-    (session.cacheRead / 1_000_000) * pricing.cache +
-    (session.output / 1_000_000) * pricing.output
+    ((session.input + (session.cacheCreate ?? 0)) / 1_000_000) * modelPricing.input +
+    (session.cacheRead / 1_000_000) * modelPricing.cachedInput +
+    (session.output / 1_000_000) * modelPricing.output
   );
 }
 

@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { loadPricing } from "./pricing/index.js";
 import {
   collectSessionsForDate,
   collectProviderTotals,
@@ -35,6 +36,7 @@ Options:
   --refresh SECONDS       Refresh interval, default 2
   --warn-tokens NUMBER    Warning threshold, default 2000000
   --lookback-days NUMBER  Scan recent session folders, default 14
+  --pricing-file PATH     Load pricing override JSON
   --codex-weekly-limit N  Weekly Codex credit calibration
   --codex-monthly-limit N Monthly Codex credit calibration
 
@@ -43,6 +45,7 @@ Environment:
   AI_USAGE_REFRESH
   AI_USAGE_WARN_TOKENS
   AI_USAGE_LOOKBACK_DAYS
+  CTOP_PRICING_FILE
   CTOP_CODEX_WEEKLY_LIMIT
   CTOP_CODEX_MONTHLY_LIMIT
 
@@ -81,6 +84,7 @@ const REFRESH = Number(arg("--refresh") ?? process.env.AI_USAGE_REFRESH ?? "2");
 const LOOKBACK_DAYS = Number(
   arg("--lookback-days") ?? process.env.AI_USAGE_LOOKBACK_DAYS ?? "14",
 );
+const PRICING_FILE = resolvePricingFile();
 const CODEX_WEEKLY_LIMIT = resolveCodexLimit(
   "--codex-weekly-limit",
   "CTOP_CODEX_WEEKLY_LIMIT",
@@ -89,6 +93,7 @@ const CODEX_MONTHLY_LIMIT = resolveCodexLimit(
   "--codex-monthly-limit",
   "CTOP_CODEX_MONTHLY_LIMIT",
 );
+const PRICING = loadPricing({ pricingFile: PRICING_FILE });
 
 export function resolveCodexLimit(flagName, envName, argv = args, env = process.env) {
   const raw = argFrom(argv, flagName) ?? env[envName];
@@ -96,6 +101,10 @@ export function resolveCodexLimit(flagName, envName, argv = args, env = process.
 
   const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function resolvePricingFile(argv = args, env = process.env) {
+  return argFrom(argv, "--pricing-file") ?? env.CTOP_PRICING_FILE ?? null;
 }
 
 function currentDate() {
@@ -362,6 +371,7 @@ function collectUsageForDate(date) {
     lookbackDays: LOOKBACK_DAYS,
     homeDir: HOME,
     helpers: { dateMinus, localDate, localTime },
+    pricing: PRICING,
   });
   return {
     sessions,

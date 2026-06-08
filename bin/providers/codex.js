@@ -50,7 +50,7 @@ function sessionName(file) {
     .slice(0, 16);
 }
 
-function readSession(file, date, helpers) {
+function readSession(file, date, helpers, pricing) {
   const session = {
     provider: "codex",
     providerTag: "CX",
@@ -105,7 +105,7 @@ function readSession(file, date, helpers) {
     }
   }
 
-  session.credits = estimateCredits(session);
+  session.credits = estimateCredits(session, pricing);
 
   return foundActivity && session.total > 0 ? session : null;
 }
@@ -116,10 +116,10 @@ const provider = {
   isAvailable({ home }) {
     return fs.existsSync(path.join(home, ".codex", "sessions"));
   },
-  loadSessions({ home, date, lookbackDays, helpers }) {
+  loadSessions({ home, date, lookbackDays, helpers, pricing }) {
     return candidateDirs(date, lookbackDays, helpers, home)
       .flatMap((dir) => walk(dir))
-      .map((file) => readSession(file, date, helpers))
+      .map((file) => readSession(file, date, helpers, pricing))
       .filter(Boolean);
   },
 };
