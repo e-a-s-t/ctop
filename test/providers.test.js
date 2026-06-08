@@ -5,14 +5,18 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  renderCodexLimitCell,
-  renderProviderTotals,
-  renderPeriodLines,
-  renderSessionLine,
-  renderSessionMetrics,
   resolveCodexLimit,
   resolvePricingFile,
 } from "../bin/ctop.js";
+import {
+  renderCodexLimitCell,
+  renderProviderTotals,
+  renderPeriodLines,
+} from "../bin/render/periods.js";
+import {
+  renderSessionLine,
+  renderSessionMetrics,
+} from "../bin/render/sessions.js";
 import {
   DEFAULT_PRICING,
   loadPricing,
@@ -430,7 +434,7 @@ test("loadPricing invalid JSON gives clear error", () => {
   );
 });
 
-test("Week and Month show CX and GH totals", () => {
+test("Daily Week and Month show CX and GH totals", () => {
   const sessions = collectSessionsForDate({
     selectedDate: "2026-06-04",
     lookbackDays: 14,
@@ -439,8 +443,16 @@ test("Week and Month show CX and GH totals", () => {
     pricing: DEFAULT_PRICING,
   });
 
+  const daily = renderPeriodLines("Daily", sessions).map(stripAnsi).join("\n");
   const week = renderPeriodLines("Week", sessions).map(stripAnsi).join("\n");
   const month = renderPeriodLines("Month", sessions).map(stripAnsi).join("\n");
+
+  assert.match(daily, /^Daily$/m);
+  assert.match(daily, /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS$/m);
+  assert.match(daily, /^ALL\s+480\s+250\s+100\s+120\s+10\s+-\s+-\s+0\.05$/m);
+  assert.match(daily, /^CX\s+230\s+100\s+50\s+80\s+0\s+-\s+-\s+0\.05$/m);
+  assert.match(daily, /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--$/m);
+  assert.doesNotMatch(daily, /LIMIT|%|🔥/);
 
   assert.match(week, /^Week$/m);
   assert.match(week, /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS$/m);
@@ -481,11 +493,17 @@ test("period lines stay unchanged when no Codex limits configured", () => {
 });
 
 test("period lines still render with empty sessions", () => {
+  const daily = renderPeriodLines("Daily", []).map(stripAnsi);
   const week = renderPeriodLines("Week", []).map(stripAnsi);
   const month = renderPeriodLines("Month", [], {
     codexMonthlyLimit: 100,
   }).map(stripAnsi);
 
+  assert.deepEqual(daily, [
+    "Daily",
+    "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
+    "ALL          --       --       --       --       --    -    -     0.00",
+  ]);
   assert.deepEqual(week, [
     "Week",
     "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
@@ -511,7 +529,15 @@ test("period lines append Codex limit progress for CX only", () => {
   const month = renderPeriodLines("Month", sessions, {
     codexMonthlyLimit: 0.06,
   }).map(stripAnsi);
+  const daily = renderPeriodLines("Daily", sessions, {
+    codexWeeklyLimit: 0.05,
+    codexMonthlyLimit: 0.06,
+  }).map(stripAnsi);
 
+  assert.equal(daily[1], "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS");
+  assert.equal(daily[2], "ALL         480      250      100      120       10    -    -     0.05");
+  assert.equal(daily[3], "CX          230      100       50       80        0    -    -     0.05");
+  assert.equal(daily[4], "GH          250      150       50       40       10    2    1       --");
   assert.match(week[1], /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS\s+LIMIT\s*$/);
   assert.equal(
     week[2],
