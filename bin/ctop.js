@@ -8,7 +8,7 @@ import {
   collectProviderTotals,
   collectUsageTotals,
   hasPartialData,
-} from "../lib/providers.js";
+} from "./providers/index.js";
 
 const args = process.argv.slice(2);
 

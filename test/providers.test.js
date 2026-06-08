@@ -17,7 +17,7 @@ import {
   estimateCredits,
   hasPartialData,
   MODEL_PRICING,
-} from "../lib/providers.js";
+} from "../bin/providers/index.js";
 
 const FIXTURE_HOME = path.resolve("test/fixtures/home");
 const ANSI_RE = /\x1b\[[0-9;]*m/g;

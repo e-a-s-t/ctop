@@ -114,6 +114,34 @@ Reads:
 
 Support is under development.
 
+## Add Provider
+
+Provider modules live in `bin/providers/`.
+
+Add provider:
+
+1. Create `bin/providers/<id>.js`
+2. Export provider object:
+
+```js
+export default {
+  id: "provider-id",
+  name: "Provider Name",
+  isAvailable({ home }) {
+    return true;
+  },
+  loadSessions({ home, date, helpers }) {
+    return [];
+  },
+};
+```
+
+3. Register module in `bin/providers/index.js`
+4. Keep normalized session shape unchanged
+5. Add or update coverage in `test/providers.test.js`
+
+Shared helpers and totals logic live in `bin/providers/shared.js`.
+
 ---
 
 ## Philosophy
