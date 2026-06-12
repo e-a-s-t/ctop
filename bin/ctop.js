@@ -5,10 +5,8 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { loadPricing } from "./pricing/index.js";
 import { renderDashboard } from "./render/index.js";
-import {
-  collectSessionsForDate,
-  hasPartialData,
-} from "./providers/index.js";
+import { collectSessionsForDate, hasPartialData } from "./providers/index.js";
+import { renderTinyDashboard } from "./render/tiny.js";
 
 const args = process.argv.slice(2);
 
@@ -33,6 +31,7 @@ Options:
   -h, --help              Show help
   --date YYYY-MM-DD       Show specific date
   --refresh SECONDS       Refresh interval, default 2
+  --tiny [N]              Show condensed today-only view, latest N sessions, default 5
   --warn-tokens NUMBER    Warning threshold, default 2000000
   --lookback-days NUMBER  Scan recent session folders, default 14
   --pricing-file PATH     Load pricing override JSON
@@ -84,7 +83,15 @@ const CODEX_MONTHLY_LIMIT = resolveCodexLimit(
 );
 const PRICING = loadPricing({ pricingFile: PRICING_FILE });
 
-export function resolveCodexLimit(flagName, envName, argv = args, env = process.env) {
+const TINY = hasFlag("--tiny");
+const TINY_LIMIT = optionalNumberAfter("--tiny", 5);
+
+export function resolveCodexLimit(
+  flagName,
+  envName,
+  argv = args,
+  env = process.env,
+) {
   const raw = argFrom(argv, flagName) ?? env[envName];
   if (raw == null || raw === "") return null;
 
@@ -218,12 +225,49 @@ function collectSessionsForRange(startDate, endDate) {
   return sessions;
 }
 
+function hasFlag(name) {
+  return args.includes(name);
+}
+
+function optionalNumberAfter(name, fallback) {
+  const idx = args.indexOf(name);
+  if (idx < 0) return fallback;
+
+  const raw = args[idx + 1];
+  if (!raw || raw.startsWith("-")) return fallback;
+
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
 function render() {
   const date = currentDate();
   const { sessions } = collectUsageForDate(date);
-  const thisWeekSessions = collectSessionsForRange(weekStart(date), weekEnd(date));
-  const thisMonthSessions = collectSessionsForRange(monthStart(date), monthEnd(date));
   const partialData = hasPartialData(sessions);
+
+  if (TINY) {
+    process.stdout.write(
+      renderTinyDashboard({
+        date,
+        width: WIDTH,
+        lookbackDays: LOOKBACK_DAYS,
+        sessions,
+        warnTokens: WARN_TOKENS,
+        partialData,
+      }),
+    );
+    return;
+  }
+
+  const thisWeekSessions = collectSessionsForRange(
+    weekStart(date),
+    weekEnd(date),
+  );
+  const thisMonthSessions = collectSessionsForRange(
+    monthStart(date),
+    monthEnd(date),
+  );
+
   process.stdout.write(
     renderDashboard({
       date,
@@ -246,6 +290,9 @@ async function loop() {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])
+) {
   loop();
 }

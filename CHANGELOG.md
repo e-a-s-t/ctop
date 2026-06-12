@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.2
+
+### Added
+
+- New --tiny mode for a compact, session-focused view.
+- --tiny [N] now supports displaying only the latest sessions.
+- Default tiny mode shows the most recent 5 sessions.
+- Custom number of sessions can be specified, for example:
+
+  ```shell
+  ctop --tiny
+  ctop --tiny 7
+  ctop --tiny 10
+  ```
+
 ## v0.2.1
 
 ### Fixed

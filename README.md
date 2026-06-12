@@ -55,6 +55,7 @@ ctop
 ```bash
 ctop --date YYYY-MM-DD
 ctop --refresh 5
+ctop --tiny
 ctop --warn-tokens 2000000
 ctop --pricing-file ./my-pricing.json
 ctop --codex-weekly-limit 4000
