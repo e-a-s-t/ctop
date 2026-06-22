@@ -1,6 +1,6 @@
 {
   "name": "ctop",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "bin": {
     "ctop": "./bin/ctop.js"
