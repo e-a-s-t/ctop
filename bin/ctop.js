@@ -252,7 +252,7 @@ function render() {
         width: WIDTH,
         lookbackDays: LOOKBACK_DAYS,
         sessions,
-        warnTokens: WARN_TOKENS,
+        limit: TINY_LIMIT,
         partialData,
       }),
     );

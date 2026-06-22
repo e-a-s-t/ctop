@@ -88,7 +88,8 @@ test("collect sessions keeps codex parsing and discovers copilot", () => {
   const codex = sessions.find((session) => session.provider === "codex");
   assert.ok(codex);
   assert.equal(codex.model, "g5.5");
-  assert.equal(codex.total, 230);
+  assert.equal(codex.total, 70);
+  assert.equal(codex.input, 20);
   assert.equal(codex.time, "11:15");
   assert.equal(codex.creditAvailable, true);
 
@@ -267,12 +268,12 @@ test("totals ignore rows with unavailable copilot usage and mark partial", () =>
 
   const totals = collectUsageTotals(sessions);
 
-  assert.equal(totals.total, 480);
-  assert.equal(totals.input, 250);
+  assert.equal(totals.total, 320);
+  assert.equal(totals.input, 170);
   assert.equal(totals.output, 100);
   assert.equal(totals.cacheRead, 120);
   assert.equal(totals.reasoning, 10);
-  assert.equal(Number(totals.credits.toFixed(3)), 0.051);
+  assert.equal(Number(totals.credits.toFixed(3)), 0.041);
   assert.equal(hasPartialData(sessions), true);
 });
 
@@ -357,8 +358,8 @@ test("provider totals keep token totals and metadata-only msg/req totals", () =>
   const gh = totals.find((total) => total.providerTag === "GH");
 
   assert.ok(cx);
-  assert.equal(cx.total, 230);
-  assert.equal(cx.input, 100);
+  assert.equal(cx.total, 70);
+  assert.equal(cx.input, 20);
   assert.equal(cx.output, 50);
   assert.equal(cx.creditAvailable, true);
   assert.equal(cx.metadataMessageCount, 0);
@@ -373,6 +374,139 @@ test("provider totals keep token totals and metadata-only msg/req totals", () =>
   assert.equal(gh.creditAvailable, false);
   assert.equal(gh.metadataMessageCount, 2);
   assert.equal(gh.metadataRequestCount, 1);
+});
+
+test("codex footer semantics keep input and total excluding cache reads", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ctop-codex-footers-"));
+  const sessionDir = path.join(homeDir, ".codex", "sessions", "2026", "06", "22");
+  fs.mkdirSync(sessionDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(sessionDir, "session-1.jsonl"),
+    [
+      {
+        timestamp: "2026-06-22T09:00:00.000Z",
+        model: "gpt-5.5",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cached_input_tokens: 0,
+              cache_creation_input_tokens: 0,
+              reasoning_output_tokens: 0,
+              total_tokens: 0,
+            },
+          },
+        },
+        session_id: "session-1",
+      },
+      {
+        timestamp: "2026-06-22T09:15:00.000Z",
+        model: "gpt-5.5",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 15091509,
+              output_tokens: 86342,
+              cached_input_tokens: 14651008,
+              cache_creation_input_tokens: 0,
+              reasoning_output_tokens: 51379,
+              total_tokens: 526843,
+            },
+          },
+        },
+        session_id: "session-1",
+      },
+    ].map((line) => JSON.stringify(line)).join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(sessionDir, "session-2.jsonl"),
+    [
+      {
+        timestamp: "2026-06-22T11:00:00.000Z",
+        model: "gpt-5.5",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cached_input_tokens: 0,
+              cache_creation_input_tokens: 0,
+              reasoning_output_tokens: 0,
+              total_tokens: 0,
+            },
+          },
+        },
+        session_id: "session-2",
+      },
+      {
+        timestamp: "2026-06-22T11:30:00.000Z",
+        model: "gpt-5.5",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 1791740,
+              output_tokens: 32475,
+              cached_input_tokens: 1641728,
+              cache_creation_input_tokens: 0,
+              reasoning_output_tokens: 21279,
+              total_tokens: 182487,
+            },
+          },
+        },
+        session_id: "session-2",
+      },
+    ].map((line) => JSON.stringify(line)).join("\n"),
+  );
+
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-22",
+    lookbackDays: 1,
+    helpers,
+    homeDir,
+    pricing: DEFAULT_PRICING,
+  });
+
+  assert.equal(sessions.length, 2);
+  assert.deepEqual(
+    sessions.map((session) => ({
+      total: session.total,
+      input: session.input,
+      output: session.output,
+      cacheRead: session.cacheRead,
+      reasoning: session.reasoning,
+    })),
+    [
+      {
+        total: 526843,
+        input: 440501,
+        output: 86342,
+        cacheRead: 14651008,
+        reasoning: 51379,
+      },
+      {
+        total: 182487,
+        input: 150012,
+        output: 32475,
+        cacheRead: 1641728,
+        reasoning: 21279,
+      },
+    ],
+  );
+
+  const totals = collectUsageTotals(sessions);
+  assert.equal(totals.input, 590513);
+  assert.equal(totals.output, 118817);
+  assert.equal(totals.cacheRead, 16292736);
+  assert.equal(totals.total, 709330);
+  assert.equal(totals.reasoning, 72658);
+  assert.equal(Number(totals.credits.toFixed(3)), 366.586);
 });
 
 test("estimateCredits bills cacheCreate at input rate", () => {
@@ -585,15 +719,15 @@ test("Daily Week and Month show CX and GH totals", () => {
 
   assert.match(daily, /^Daily$/m);
   assert.match(daily, /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS$/m);
-  assert.match(daily, /^ALL\s+480\s+250\s+100\s+120\s+10\s+-\s+-\s+0\.05$/m);
-  assert.match(daily, /^CX\s+230\s+100\s+50\s+80\s+0\s+-\s+-\s+0\.05$/m);
+  assert.match(daily, /^ALL\s+320\s+170\s+100\s+120\s+10\s+-\s+-\s+0\.04$/m);
+  assert.match(daily, /^CX\s+70\s+20\s+50\s+80\s+0\s+-\s+-\s+0\.04$/m);
   assert.match(daily, /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--$/m);
   assert.doesNotMatch(daily, /LIMIT|%|🔥/);
 
   assert.match(week, /^Week$/m);
   assert.match(week, /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS$/m);
-  assert.match(week, /^ALL\s+480\s+250\s+100\s+120\s+10\s+-\s+-\s+0\.05$/m);
-  assert.match(week, /^CX\s+230\s+100\s+50\s+80\s+0\s+-\s+-\s+0\.05$/m);
+  assert.match(week, /^ALL\s+320\s+170\s+100\s+120\s+10\s+-\s+-\s+0\.04$/m);
+  assert.match(week, /^CX\s+70\s+20\s+50\s+80\s+0\s+-\s+-\s+0\.04$/m);
   assert.match(week, /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--$/m);
 
   assert.match(month, /^Month$/m);
@@ -615,15 +749,15 @@ test("period lines stay unchanged when no Codex limits configured", () => {
   assert.deepEqual(week, [
     "Week",
     "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
-    "ALL         480      250      100      120       10    -    -     0.05",
-    "CX          230      100       50       80        0    -    -     0.05",
+    "ALL         320      170      100      120       10    -    -     0.04",
+    "CX           70       20       50       80        0    -    -     0.04",
     "GH          250      150       50       40       10    2    1       --",
   ]);
   assert.deepEqual(month, [
     "Month",
     "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS",
-    "ALL         480      250      100      120       10    -    -     0.05",
-    "CX          230      100       50       80        0    -    -     0.05",
+    "ALL         320      170      100      120       10    -    -     0.04",
+    "CX           70       20       50       80        0    -    -     0.04",
     "GH          250      150       50       40       10    2    1       --",
   ]);
 });
@@ -671,26 +805,26 @@ test("period lines append Codex limit progress for CX only", () => {
   }).map(stripAnsi);
 
   assert.equal(daily[1], "SRC       TOTAL    INPUT   OUTPUT    CACHE   REASON  MSG  REQ  CREDITS");
-  assert.equal(daily[2], "ALL         480      250      100      120       10    -    -     0.05");
-  assert.equal(daily[3], "CX          230      100       50       80        0    -    -     0.05");
+  assert.equal(daily[2], "ALL         320      170      100      120       10    -    -     0.04");
+  assert.equal(daily[3], "CX           70       20       50       80        0    -    -     0.04");
   assert.equal(daily[4], "GH          250      150       50       40       10    2    1       --");
   assert.match(week[1], /^SRC\s+TOTAL\s+INPUT\s+OUTPUT\s+CACHE\s+REASON\s+MSG\s+REQ\s+CREDITS\s+LIMIT\s*$/);
   assert.equal(
     week[2],
-    "ALL         480      250      100      120       10    -    -     0.05 ██████████ 102% 🔥",
+    "ALL         320      170      100      120       10    -    -     0.04 ████████░░ 82%   ",
   );
   assert.equal(
     week[3],
-    "CX          230      100       50       80        0    -    -     0.05 ██████████ 102% 🔥",
+    "CX           70       20       50       80        0    -    -     0.04 ████████░░ 82%   ",
   );
   assert.match(week[4], /^GH\s+250\s+150\s+50\s+40\s+10\s+2\s+1\s+--\s+-\s*$/);
   assert.equal(
     month[2],
-    "ALL         480      250      100      120       10    -    -     0.05 █████████░ 85%   ",
+    "ALL         320      170      100      120       10    -    -     0.04 ███████░░░ 68%   ",
   );
   assert.equal(
     month[3],
-    "CX          230      100       50       80        0    -    -     0.05 █████████░ 85%   ",
+    "CX           70       20       50       80        0    -    -     0.04 ███████░░░ 68%   ",
   );
 });
 

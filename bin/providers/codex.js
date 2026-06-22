@@ -3,11 +3,9 @@ import path from "node:path";
 
 import {
   addUsage,
-  deltaUsage,
   estimateCredits,
   modelFrom,
   shortId,
-  usageFrom,
   walk,
 } from "./shared.js";
 
@@ -50,6 +48,42 @@ function sessionName(file) {
     .slice(0, 16);
 }
 
+function normalizedUsageFrom(info) {
+  const cacheRead = info.cached_input_tokens ?? 0;
+  const input = Math.max(0, (info.input_tokens ?? 0) - cacheRead);
+
+  // Codex footer semantics: input excludes cached input, and total is input + output.
+  return {
+    input,
+    output: info.output_tokens ?? 0,
+    cacheRead,
+    cacheCreate: info.cache_creation_input_tokens ?? 0,
+    reasoning: info.reasoning_output_tokens ?? 0,
+    total: input + (info.output_tokens ?? 0),
+  };
+}
+
+function codexDeltaUsage(prevUsage, nextUsage) {
+  if (!prevUsage) return null;
+
+  const delta = {
+    input: Math.max(0, nextUsage.input - prevUsage.input),
+    output: Math.max(0, nextUsage.output - prevUsage.output),
+    cacheRead: Math.max(0, nextUsage.cacheRead - prevUsage.cacheRead),
+    cacheCreate: Math.max(0, nextUsage.cacheCreate - prevUsage.cacheCreate),
+    reasoning: Math.max(0, nextUsage.reasoning - prevUsage.reasoning),
+  };
+  delta.total = delta.input + delta.output;
+
+  return delta.input ||
+    delta.output ||
+    delta.cacheRead ||
+    delta.cacheCreate ||
+    delta.reasoning
+    ? delta
+    : null;
+}
+
 function readSession(file, date, helpers, pricing) {
   const session = {
     provider: "codex",
@@ -87,12 +121,12 @@ function readSession(file, date, helpers, pricing) {
       const info = obj.payload.info?.total_token_usage;
       if (!info) continue;
 
-      const usage = usageFrom(info);
+      const usage = normalizedUsageFrom(info);
       const ts =
         obj.timestamp ?? obj.time ?? obj.created_at ?? obj.payload?.timestamp;
       const eventDate = helpers.localDate(ts);
 
-      const delta = deltaUsage(prevUsage, usage);
+      const delta = codexDeltaUsage(prevUsage, usage);
       prevUsage = usage;
 
       if (eventDate !== date || !delta) continue;
@@ -107,7 +141,7 @@ function readSession(file, date, helpers, pricing) {
 
   session.credits = estimateCredits(session, pricing);
 
-  return foundActivity && session.total > 0 ? session : null;
+  return foundActivity ? session : null;
 }
 
 const provider = {
