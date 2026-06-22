@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 
+target
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
