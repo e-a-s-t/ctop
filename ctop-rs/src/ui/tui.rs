@@ -19,7 +19,7 @@ use chrono::{Local, NaiveDate};
 use crate::{
     collect_usage,
     model::{Dashboard, PeriodUsage},
-    ui::text::human,
+    ui::text::{display_model, human},
 };
 
 const TABLE_COLUMNS: [Constraint; 10] = [
@@ -109,16 +109,13 @@ fn draw_dashboard(frame: &mut ratatui::Frame, area: Rect, dashboard: &Dashboard)
 fn draw_top(frame: &mut ratatui::Frame, area: Rect, d: &Dashboard) {
     let lines = vec![
         Line::from(vec![
-            Span::raw(format!(
-                "CTop: {} sessions",
-                d.sessions_24h.len()
-            )),
+            Span::raw(format!("CTop: {} sessions", d.sessions_24h.len())),
             Span::raw(format!("{:>32}", d.generated_at.format("%H:%M:%S"))),
         ]),
         summary_line(&d.day),
         summary_line(&d.week),
         summary_line(&d.month),
-        Line::raw("Providers: CX Codex, GH GitHub Copilot"),
+        Line::raw("Providers: CX Codex, GH GitHub Copilot, CC Claude"),
         Line::raw("Window: sessions during the last 24 hours"),
     ];
 
@@ -172,13 +169,18 @@ fn draw_sessions(frame: &mut ratatui::Frame, area: Rect, d: &Dashboard) {
         Row::new(vec![
             table_cell(s.started_at.format("%H:%M").to_string(), 5, Alignment::Left),
             table_cell(s.provider.short(), 4, Alignment::Left),
-            table_cell(s.model.clone(), 14, Alignment::Left),
+            table_cell(display_model(&s.model), 14, Alignment::Left),
             table_cell_colored(human(s.usage.total()), 7, Alignment::Right, Color::Yellow),
             table_cell(human(s.usage.input), 6, Alignment::Right),
             table_cell(human(s.usage.output), 6, Alignment::Right),
             table_cell(human(s.usage.cache_create), 9, Alignment::Right),
             table_cell(human(s.usage.cache_read), 9, Alignment::Right),
-            table_cell_colored(format!("{:.2}", s.credits), 8, Alignment::Right, Color::Yellow),
+            table_cell_colored(
+                format!("{:.2}", s.credits),
+                8,
+                Alignment::Right,
+                Color::Yellow,
+            ),
             table_cell(s.id.clone(), 18, Alignment::Left),
         ])
     });

@@ -74,7 +74,7 @@ fn render_session_line(s: &Session) -> String {
     [
         fit(s.started_at.format("%H:%M").to_string(), TABLE_WIDTHS[0], Alignment::Left),
         fit(s.provider.short(), TABLE_WIDTHS[1], Alignment::Left),
-        fit(s.model.clone(), TABLE_WIDTHS[2], Alignment::Left),
+        fit(display_model(&s.model), TABLE_WIDTHS[2], Alignment::Left),
         format!(
             "{}{}{}",
             YELLOW,
@@ -122,6 +122,10 @@ fn truncate(text: &str, width: usize) -> String {
 enum Alignment {
     Left,
     Right,
+}
+
+pub fn display_model(model: &str) -> &str {
+    model.strip_prefix("claude-").unwrap_or(model)
 }
 
 pub fn human(n: u64) -> String {

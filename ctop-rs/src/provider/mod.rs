@@ -1,10 +1,11 @@
+pub mod claude;
 pub mod codex;
 pub mod github;
 
 use crate::{
     model::{Dashboard, PeriodUsage, Session},
     parser::{date_plus, month_end, month_start, week_end, week_start},
-    pricing::{resolve_limit, Pricing},
+    pricing::{Pricing, resolve_limit},
 };
 use chrono::{Local, NaiveDate, Timelike};
 use std::path::Path;
@@ -22,7 +23,15 @@ pub fn collect_sessions_for_date(home: &Path, date: NaiveDate, pricing: &Pricing
         sessions.extend(github::load_sessions(home, date));
     }
 
-    sessions.sort_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)));
+    if claude::is_available(home) {
+        sessions.extend(claude::load_sessions(home, date, pricing));
+    }
+
+    sessions.sort_by(|a, b| {
+        a.started_at
+            .cmp(&b.started_at)
+            .then_with(|| a.id.cmp(&b.id))
+    });
     sessions
 }
 
@@ -47,7 +56,11 @@ pub fn collect_usage_for_day(sessions: &[Session]) -> PeriodUsage {
     aggregate_period("Day", sessions)
 }
 
-pub fn collect_usage_for_range(label: &str, sessions: &[Session], codex_limit: Option<f64>) -> PeriodUsage {
+pub fn collect_usage_for_range(
+    label: &str,
+    sessions: &[Session],
+    codex_limit: Option<f64>,
+) -> PeriodUsage {
     let mut period = aggregate_period(label, sessions);
     period.codex_limit = codex_limit;
     period
