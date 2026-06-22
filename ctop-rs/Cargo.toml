@@ -1,6 +1,6 @@
 [package]
 name = "ctop-rs"
-version = "0.1.0"
+version = "0.2.6"
 edition = "2024"
 
 [dependencies]
@@ -11,3 +11,7 @@ crossterm = "0.28"
 ratatui = "0.29"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[[bin]]
+name = "ctop"
+path = "src/main.rs"
