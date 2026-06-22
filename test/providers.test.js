@@ -31,6 +31,7 @@ import {
   estimateCredits,
   hasPartialData,
 } from "../bin/providers/index.js";
+import { displayModel } from "../bin/render/bars.js";
 
 const FIXTURE_HOME = path.resolve("test/fixtures/home");
 const EMPTY_FIXTURE_HOME = path.resolve("test/fixtures/codex-only-home");
@@ -938,4 +939,141 @@ test("missing copilot path does not break codex collection", () => {
 
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].provider, "codex");
+});
+
+test("claude provider discovers sessions and sums per-event token usage", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ctop-claude-"));
+  const projectDir = path.join(homeDir, ".claude", "projects", "-home-pol-code-myproject");
+  fs.mkdirSync(projectDir, { recursive: true });
+
+  const sessionId = "aabb1234-5678-9abc-def0-123456789abc";
+  const lines = [
+    // event on target date with usage
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-06-22T09:00:00.000Z",
+      sessionId,
+      message: {
+        model: "claude-opus-4-8",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 200,
+          cache_creation_input_tokens: 300,
+        },
+      },
+    }),
+    // second event same session same date
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-06-22T09:30:00.000Z",
+      sessionId,
+      message: {
+        model: "claude-opus-4-8",
+        usage: {
+          input_tokens: 50,
+          output_tokens: 25,
+          cache_read_input_tokens: 100,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    }),
+    // event on different date — should not be counted
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-06-20T12:00:00.000Z",
+      sessionId,
+      message: {
+        model: "claude-opus-4-8",
+        usage: {
+          input_tokens: 999,
+          output_tokens: 999,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    }),
+    // non-assistant event — should be ignored
+    JSON.stringify({ type: "user", timestamp: "2026-06-22T09:01:00.000Z", sessionId }),
+  ];
+
+  fs.writeFileSync(path.join(projectDir, `${sessionId}.jsonl`), lines.join("\n"));
+
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-22",
+    lookbackDays: 1,
+    helpers,
+    homeDir,
+    pricing: DEFAULT_PRICING,
+  });
+
+  assert.equal(sessions.length, 1);
+  const session = sessions[0];
+  assert.equal(session.provider, "claude");
+  assert.equal(session.providerTag, "CC");
+  assert.equal(session.model, "claude-opus-4-8");
+  assert.equal(session.input, 150);
+  assert.equal(session.output, 75);
+  assert.equal(session.cacheRead, 300);
+  assert.equal(session.cacheCreate, 300);
+  assert.equal(session.total, 225);
+  assert.equal(session.usageAvailable, true);
+  assert.equal(session.creditAvailable, true);
+  assert.ok(session.credits > 0);
+  assert.equal(session.name, `${sessionId.slice(0, 4)}…${sessionId.slice(-4)}`);
+});
+
+test("displayModel strips claude- prefix for display, leaves other models unchanged", () => {
+  assert.equal(displayModel("claude-opus-4-8"), "opus-4-8");
+  assert.equal(displayModel("claude-sonnet-4-6"), "sonnet-4-6");
+  assert.equal(displayModel("claude-haiku-4-5-20251001"), "haiku-4-5-20251001");
+  assert.equal(displayModel("gpt-5.5"), "gpt-5.5");
+  assert.equal(displayModel("g5-mini"), "g5-mini");
+  assert.equal(displayModel("g4.1"), "g4.1");
+});
+
+test("claude session renderSessionLine displays stripped model, credits use full model id", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ctop-claude-render-"));
+  const sessionId = "aabbccdd1122";
+  const projectDir = path.join(homeDir, ".claude", "projects", "-home-pol-code-myproject");
+  fs.mkdirSync(projectDir, { recursive: true });
+  const logFile = path.join(projectDir, `${sessionId}.jsonl`);
+  const ts = "2026-06-22T10:00:00.000Z";
+  fs.writeFileSync(
+    logFile,
+    [
+      JSON.stringify({ type: "assistant", timestamp: ts, message: { model: "claude-opus-4-8", usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }),
+    ].join("\n"),
+  );
+
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-22",
+    lookbackDays: 1,
+    helpers,
+    homeDir,
+    pricing: DEFAULT_PRICING,
+  });
+
+  const session = sessions.find((s) => s.provider === "claude");
+  assert.ok(session);
+  assert.equal(session.model, "claude-opus-4-8", "raw model field must retain full id for pricing");
+  assert.ok(session.credits > 0, "credits resolve from full model id");
+
+  const rendered = stripAnsi(renderSessionLine(session, session.total));
+  assert.match(rendered, /opus-4-8/, "displayed model has claude- prefix stripped");
+  assert.doesNotMatch(rendered, /claude-opus/, "full claude- prefix must not appear in display");
+});
+
+test("claude provider returns no sessions when .claude/projects is absent", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ctop-claude-empty-"));
+
+  const sessions = collectSessionsForDate({
+    selectedDate: "2026-06-22",
+    lookbackDays: 1,
+    helpers,
+    homeDir,
+    pricing: DEFAULT_PRICING,
+  });
+
+  assert.equal(sessions.filter((s) => s.provider === "claude").length, 0);
 });

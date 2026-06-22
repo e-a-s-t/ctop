@@ -1,5 +1,5 @@
 import { collectUsageTotals } from "../providers/index.js";
-import { cell, fmt, padVisible } from "./bars.js";
+import { cell, displayModel, fmt, padVisible } from "./bars.js";
 import { D, Y, Z } from "./colors.js";
 
 function tinyHeader() {
@@ -18,7 +18,7 @@ function tinySessionLine(session) {
 
   return [
     padVisible(session.time, 5),
-    padVisible(session.model, 8),
+    padVisible(displayModel(session.model), 8),
     padVisible(total, 7, "right"),
     padVisible(`${D}${session.name}${Z}`, 18),
     padVisible(

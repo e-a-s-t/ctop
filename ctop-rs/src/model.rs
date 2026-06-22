@@ -73,6 +73,7 @@ impl TokenUsage {
 pub enum Provider {
     Codex,
     GitHubCopilot,
+    Claude,
 }
 
 impl Provider {
@@ -80,6 +81,7 @@ impl Provider {
         match self {
             Provider::Codex => "CX",
             Provider::GitHubCopilot => "GH",
+            Provider::Claude => "CC",
         }
     }
 }

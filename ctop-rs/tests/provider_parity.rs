@@ -2,14 +2,45 @@ use chrono::NaiveDate;
 use ctop_rs::{
     model::Provider,
     model::TokenUsage,
-    ui::text::render_text,
     pricing::{default_pricing, estimate_credits, load_pricing},
     provider,
+    ui::text::{display_model, render_text},
 };
 use std::{
     fs,
     path::{Path, PathBuf},
 };
+
+fn claude_event(
+    timestamp: &str,
+    session_id: &str,
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_input_tokens: u64,
+    cache_creation_input_tokens: u64,
+) -> String {
+    serde_json::json!({
+        "type": "assistant",
+        "timestamp": timestamp,
+        "sessionId": session_id,
+        "message": {
+            "model": model,
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cache_read_input_tokens": cache_read_input_tokens,
+                "cache_creation_input_tokens": cache_creation_input_tokens,
+            }
+        }
+    })
+    .to_string()
+}
+
+fn write_claude_session(dir: &Path, file_name: &str, lines: &[String]) {
+    fs::create_dir_all(dir).unwrap();
+    fs::write(dir.join(file_name), lines.join("\n")).unwrap();
+}
 
 fn fixture_home() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test/fixtures/home")
@@ -120,8 +151,16 @@ fn collect_usage_matches_fixture_totals() {
         .filter(|session| session.provider == Provider::GitHubCopilot)
         .collect();
     assert_eq!(copilot_totals.len(), 2);
-    assert!(copilot_totals.iter().any(|session| session.model == "g5-mini" && session.usage.total() == 250));
-    assert!(copilot_totals.iter().any(|session| session.model == "g4.1" && session.usage.total() == 0));
+    assert!(
+        copilot_totals
+            .iter()
+            .any(|session| session.model == "g5-mini" && session.usage.total() == 250)
+    );
+    assert!(
+        copilot_totals
+            .iter()
+            .any(|session| session.model == "g4.1" && session.usage.total() == 0)
+    );
 }
 
 #[test]
@@ -161,10 +200,7 @@ fn codex_only_home_still_collects() {
 
 #[test]
 fn codex_footer_semantics_match_session_footers() {
-    let base = std::env::temp_dir().join(format!(
-        "ctop-codex-footers-{}",
-        std::process::id()
-    ));
+    let base = std::env::temp_dir().join(format!("ctop-codex-footers-{}", std::process::id()));
     let session_dir = base.join(".codex/sessions/2026/06/22");
     let date = NaiveDate::from_ymd_opt(2026, 6, 22).unwrap();
 
@@ -172,15 +208,7 @@ fn codex_footer_semantics_match_session_footers() {
         &session_dir,
         "session-1.jsonl",
         &[
-            codex_line(
-                "2026-06-22T09:00:00.000Z",
-                "session-1",
-                0,
-                0,
-                0,
-                0,
-                0,
-            ),
+            codex_line("2026-06-22T09:00:00.000Z", "session-1", 0, 0, 0, 0, 0),
             codex_line(
                 "2026-06-22T09:15:00.000Z",
                 "session-1",
@@ -196,15 +224,7 @@ fn codex_footer_semantics_match_session_footers() {
         &session_dir,
         "session-2.jsonl",
         &[
-            codex_line(
-                "2026-06-22T11:00:00.000Z",
-                "session-2",
-                0,
-                0,
-                0,
-                0,
-                0,
-            ),
+            codex_line("2026-06-22T11:00:00.000Z", "session-2", 0, 0, 0, 0, 0),
             codex_line(
                 "2026-06-22T11:30:00.000Z",
                 "session-2",
@@ -243,7 +263,8 @@ fn codex_footer_semantics_match_session_footers() {
 fn text_render_uses_stable_session_columns() {
     let date = NaiveDate::from_ymd_opt(2026, 6, 4).unwrap();
     let dashboard = provider::collect_periods(&fixture_home(), date, default_pricing());
-    let lines: Vec<_> = render_text(&dashboard).lines().collect();
+    let rendered = render_text(&dashboard);
+    let lines: Vec<_> = rendered.lines().collect();
     let header = strip_ansi(lines[5]);
     let row = strip_ansi(lines[7]);
 
@@ -258,16 +279,13 @@ fn text_render_uses_stable_session_columns() {
     assert!(row.contains("    80 "));
     assert!(row.contains("    50 "));
     assert!(row.contains("  0.04 "));
-    assert!(lines[7].contains("\x1b[33m    70\x1b[0m"));
+    assert!(lines[7].contains("\x1b[33m     70\x1b[0m"));
     assert!(lines[7].contains("\x1b[33m    0.04\x1b[0m"));
 }
 
 #[test]
 fn codex_fallback_session_id_strips_rollout_prefix() {
-    let base = std::env::temp_dir().join(format!(
-        "ctop-codex-rollout-{}",
-        std::process::id()
-    ));
+    let base = std::env::temp_dir().join(format!("ctop-codex-rollout-{}", std::process::id()));
     let session_dir = base.join(".codex/sessions/2026/06/22");
     let date = NaiveDate::from_ymd_opt(2026, 6, 22).unwrap();
 
@@ -275,22 +293,8 @@ fn codex_fallback_session_id_strips_rollout_prefix() {
         &session_dir,
         "rollout-019e1234-5678-9abc-def0-123456786a0c.jsonl",
         &[
-            codex_line_without_session_id(
-                "2026-06-22T09:00:00.000Z",
-                0,
-                0,
-                0,
-                0,
-                0,
-            ),
-            codex_line_without_session_id(
-                "2026-06-22T09:15:00.000Z",
-                50,
-                20,
-                30,
-                0,
-                70,
-            ),
+            codex_line_without_session_id("2026-06-22T09:00:00.000Z", 0, 0, 0, 0, 0),
+            codex_line_without_session_id("2026-06-22T09:15:00.000Z", 50, 20, 30, 0, 70),
         ],
     );
 
@@ -301,10 +305,7 @@ fn codex_fallback_session_id_strips_rollout_prefix() {
 
 #[test]
 fn codex_fallback_session_id_extracts_uuid_from_filename() {
-    let base = std::env::temp_dir().join(format!(
-        "ctop-codex-uuid-{}",
-        std::process::id()
-    ));
+    let base = std::env::temp_dir().join(format!("ctop-codex-uuid-{}", std::process::id()));
     let session_dir = base.join(".codex/sessions/2026/06/22");
     let date = NaiveDate::from_ymd_opt(2026, 6, 22).unwrap();
 
@@ -312,26 +313,123 @@ fn codex_fallback_session_id_extracts_uuid_from_filename() {
         &session_dir,
         "2026-06-22-019eef81-d26d-7d00-b3c2-44d92ef503b0.jsonl",
         &[
-            codex_line_without_session_id(
-                "2026-06-22T09:00:00.000Z",
-                0,
-                0,
-                0,
-                0,
-                0,
-            ),
-            codex_line_without_session_id(
-                "2026-06-22T09:15:00.000Z",
-                50,
-                20,
-                30,
-                0,
-                70,
-            ),
+            codex_line_without_session_id("2026-06-22T09:00:00.000Z", 0, 0, 0, 0, 0),
+            codex_line_without_session_id("2026-06-22T09:15:00.000Z", 50, 20, 30, 0, 70),
         ],
     );
 
     let sessions = provider::collect_sessions_for_date(&base, date, default_pricing());
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, "019e…03b0");
+}
+
+#[test]
+fn claude_provider_sums_per_event_token_usage() {
+    let base = std::env::temp_dir().join(format!("ctop-claude-parity-{}", std::process::id()));
+    let session_id = "aabb1234-5678-9abc-def0-123456789abc";
+    let project_dir = base.join(".claude/projects/-home-pol-code-myproject");
+    let date = NaiveDate::from_ymd_opt(2026, 6, 22).unwrap();
+
+    write_claude_session(
+        &project_dir,
+        &format!("{session_id}.jsonl"),
+        &[
+            // first event on target date
+            claude_event(
+                "2026-06-22T09:00:00.000Z",
+                session_id,
+                "claude-opus-4-8",
+                100,
+                50,
+                200,
+                300,
+            ),
+            // second event same date — must be summed
+            claude_event(
+                "2026-06-22T09:30:00.000Z",
+                session_id,
+                "claude-opus-4-8",
+                50,
+                25,
+                100,
+                0,
+            ),
+            // event on a different date — must be excluded
+            claude_event(
+                "2026-06-20T12:00:00.000Z",
+                session_id,
+                "claude-opus-4-8",
+                999,
+                999,
+                0,
+                0,
+            ),
+        ],
+    );
+
+    let sessions = provider::collect_sessions_for_date(&base, date, default_pricing());
+    assert_eq!(sessions.len(), 1);
+
+    let session = &sessions[0];
+    assert_eq!(session.provider, Provider::Claude);
+    assert_eq!(session.model, "claude-opus-4-8");
+    assert_eq!(session.usage.input, 150);
+    assert_eq!(session.usage.output, 75);
+    assert_eq!(session.usage.cache_read, 300);
+    assert_eq!(session.usage.cache_create, 300);
+    assert_eq!(session.usage.total(), 225);
+    assert!(session.credits > 0.0);
+}
+
+#[test]
+fn display_model_strips_claude_prefix_leaves_others() {
+    assert_eq!(display_model("claude-opus-4-8"), "opus-4-8");
+    assert_eq!(display_model("claude-sonnet-4-6"), "sonnet-4-6");
+    assert_eq!(display_model("claude-haiku-4-5-20251001"), "haiku-4-5-20251001");
+    assert_eq!(display_model("gpt-5.5"), "gpt-5.5");
+    assert_eq!(display_model("g5-mini"), "g5-mini");
+}
+
+#[test]
+fn claude_session_model_field_retains_full_id_for_pricing() {
+    let base = std::env::temp_dir().join(format!("ctop-claude-model-id-{}", std::process::id()));
+    let session_id = "aabb1234-5678-9abc-def0-123456789abc";
+    let project_dir = base.join(".claude/projects/-home-pol-code-myproject");
+    let date = NaiveDate::from_ymd_opt(2026, 6, 22).unwrap();
+
+    write_claude_session(
+        &project_dir,
+        &format!("{session_id}.jsonl"),
+        &[claude_event(
+            "2026-06-22T09:00:00.000Z",
+            session_id,
+            "claude-opus-4-8",
+            100,
+            50,
+            0,
+            0,
+        )],
+    );
+
+    let sessions = provider::collect_sessions_for_date(&base, date, default_pricing());
+    let session = sessions.iter().find(|s| s.provider == Provider::Claude).unwrap();
+    assert_eq!(session.model, "claude-opus-4-8", "raw model field must retain full id for pricing");
+    assert!(session.credits > 0.0, "credits must resolve from full model id");
+    assert_eq!(display_model(&session.model), "opus-4-8", "display strips prefix");
+}
+
+#[test]
+fn claude_provider_absent_when_projects_dir_missing() {
+    let base = std::env::temp_dir().join(format!("ctop-claude-absent-{}", std::process::id()));
+    fs::create_dir_all(&base).unwrap();
+    let date = NaiveDate::from_ymd_opt(2026, 6, 22).unwrap();
+
+    let sessions = provider::collect_sessions_for_date(&base, date, default_pricing());
+    assert_eq!(
+        sessions
+            .iter()
+            .filter(|s| s.provider == Provider::Claude)
+            .count(),
+        0
+    );
 }

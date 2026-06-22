@@ -74,3 +74,7 @@ export function limitBar(percent, width = 16) {
   const filled = Math.min(width, Math.max(0, Math.round((percent / 100) * width)));
   return "█".repeat(filled) + D + "░".repeat(width - filled) + Z;
 }
+
+export function displayModel(model) {
+  return model.startsWith("claude-") ? model.slice("claude-".length) : model;
+}

@@ -24,14 +24,13 @@ static DEFAULT_PRICING: OnceLock<Pricing> = OnceLock::new();
 
 pub fn default_pricing() -> &'static Pricing {
     DEFAULT_PRICING.get_or_init(|| {
-        serde_json::from_str(DEFAULT_PRICING_JSON)
-            .expect("bundled pricing json must be valid")
+        serde_json::from_str(DEFAULT_PRICING_JSON).expect("bundled pricing json must be valid")
     })
 }
 
 pub fn load_pricing(path: Option<&Path>) -> Result<Pricing> {
-    let defaults = serde_json::to_value(default_pricing())
-        .context("failed to serialize default pricing")?;
+    let defaults =
+        serde_json::to_value(default_pricing()).context("failed to serialize default pricing")?;
 
     let Some(path) = path else {
         return Ok(default_pricing().clone());
@@ -95,9 +94,5 @@ pub fn estimate_credits(session: &crate::model::TokenUsage, model: &str, pricing
 pub fn resolve_limit(env_name: &str) -> Option<f64> {
     let raw = std::env::var(env_name).ok()?;
     let value = raw.parse::<f64>().ok()?;
-    if value > 0.0 {
-        Some(value)
-    } else {
-        None
-    }
+    if value > 0.0 { Some(value) } else { None }
 }

@@ -1,5 +1,5 @@
 import { C, D, Y, Z } from "./colors.js";
-import { bar, cell, fit, fmt, padVisible, risk } from "./bars.js";
+import { bar, cell, displayModel, fit, fmt, padVisible, risk } from "./bars.js";
 import { providerColor } from "./colors.js";
 
 function providerSourceLabel(session) {
@@ -58,7 +58,7 @@ export function renderSessionLine(s, max) {
   return [
     `${C}${fit(s.time, 5)}${Z}`,
     sourceCell(s, 9),
-    fit(s.model, 8),
+    fit(displayModel(s.model), 8),
     sessionBarCell(s, max),
     sessionUsageCell(s.total, s.usageAvailable, 6),
     sessionUsageCell(s.input, s.usageAvailable, 6),

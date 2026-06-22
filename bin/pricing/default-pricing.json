@@ -20,6 +20,21 @@
       "cachedInput": 4.375,
       "output": 350
     },
+    "claude-opus-4": {
+      "input": 15,
+      "cachedInput": 1.5,
+      "output": 75
+    },
+    "claude-sonnet-4": {
+      "input": 3,
+      "cachedInput": 0.3,
+      "output": 15
+    },
+    "claude-haiku-4": {
+      "input": 0.8,
+      "cachedInput": 0.08,
+      "output": 4
+    },
     "default": {
       "input": 62.5,
       "cachedInput": 6.25,
@@ -43,6 +58,12 @@
     "gpt-5.1-codex-mini": "gpt-5.2-codex",
     "g5.1-codex-max": "gpt-5.2-codex",
     "gpt-5.1-codex-max": "gpt-5.2-codex",
-    "codex-mini-latest": "gpt-5.2-codex"
+    "codex-mini-latest": "gpt-5.2-codex",
+    "claude-opus-4-8": "claude-opus-4",
+    "claude-opus-4-7": "claude-opus-4",
+    "claude-sonnet-4-6": "claude-sonnet-4",
+    "claude-sonnet-4-5": "claude-sonnet-4",
+    "claude-haiku-4-5": "claude-haiku-4",
+    "claude-haiku-4-5-20251001": "claude-haiku-4"
   }
 }
