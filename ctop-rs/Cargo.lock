@@ -228,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "ctop-rs"
-version = "0.2.8"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "chrono",

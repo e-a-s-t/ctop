@@ -8,7 +8,8 @@ pub fn render_text(d: &Dashboard) -> String {
     let mut out = String::new();
 
     out.push_str(&format!(
-        "CTop: {} sessions{:>32}\n",
+        "CTop {}: {} sessions{:>24}\n",
+        d.date,
         d.sessions_24h.len(),
         d.generated_at.format("%H:%M:%S")
     ));
@@ -21,12 +22,16 @@ pub fn render_text(d: &Dashboard) -> String {
     out.push('\n');
     out.push('\n');
 
-    out.push_str(&render_header());
-    out.push('\n');
-
-    for s in &d.sessions_24h {
-        out.push_str(&render_session_line(s));
+    if d.sessions_24h.is_empty() {
+        out.push_str(&format!("No sessions active on {}\n", d.date));
+    } else {
+        out.push_str(&render_header());
         out.push('\n');
+
+        for s in &d.sessions_24h {
+            out.push_str(&render_session_line(s));
+            out.push('\n');
+        }
     }
 
     out

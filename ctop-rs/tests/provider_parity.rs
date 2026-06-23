@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use ctop_rs::{
+    model::{Dashboard, PeriodUsage},
     model::Provider,
     model::TokenUsage,
     pricing::{default_pricing, estimate_credits, load_pricing},
@@ -265,9 +266,11 @@ fn text_render_uses_stable_session_columns() {
     let dashboard = provider::collect_periods(&fixture_home(), date, default_pricing());
     let rendered = render_text(&dashboard);
     let lines: Vec<_> = rendered.lines().collect();
+    let top = strip_ansi(lines[0]);
     let header = strip_ansi(lines[5]);
     let row = strip_ansi(lines[7]);
 
+    assert!(top.contains("2026-06-04"));
     assert!(header.contains("CACHE-WR"));
     assert!(header.contains("CACHE-RD"));
     assert!(!header.contains("STATE"));
@@ -281,6 +284,22 @@ fn text_render_uses_stable_session_columns() {
     assert!(row.contains("  0.04 "));
     assert!(lines[7].contains("\x1b[33m     70\x1b[0m"));
     assert!(lines[7].contains("\x1b[33m    0.04\x1b[0m"));
+}
+
+#[test]
+fn text_render_shows_empty_state_for_missing_sessions() {
+    let dashboard = Dashboard {
+        date: NaiveDate::from_ymd_opt(2026, 6, 24).unwrap(),
+        generated_at: chrono::Local::now(),
+        day: PeriodUsage::empty("Day"),
+        week: PeriodUsage::empty("Week"),
+        month: PeriodUsage::empty("Month"),
+        sessions_24h: vec![],
+    };
+
+    let rendered = render_text(&dashboard);
+    assert!(rendered.contains("No sessions active on 2026-06-24"));
+    assert!(!rendered.contains("TIME"));
 }
 
 #[test]
