@@ -43,6 +43,12 @@ pub struct TuiOptions {
     pub refresh_seconds: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ViewMode {
+    Normal,
+    Tiny,
+}
+
 pub fn run(options: TuiOptions) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -71,14 +77,16 @@ fn run_loop(
     let refresh = Duration::from_secs(options.refresh_seconds.max(1));
     let mut cache = DashboardCache::default();
     let mut selected_date = options.date.unwrap_or_else(|| Local::now().date_naive());
+    let mut view_mode = ViewMode::Normal;
     let mut has_focus = true;
 
     loop {
-        let dashboard = load_dashboard(&mut cache, selected_date)?;
+        let dashboard_date = dashboard_date_for_mode(selected_date, view_mode, Local::now().date_naive());
+        let dashboard = load_dashboard(&mut cache, dashboard_date)?;
 
         terminal.draw(|frame| {
             let area = frame.area();
-            draw_dashboard(frame, area, &dashboard);
+            draw_dashboard(frame, area, &dashboard, view_mode);
         })?;
 
         if event::poll(refresh)? {
@@ -89,6 +97,12 @@ fn run_loop(
                     match handle_key(selected_date, key.code, key.modifiers) {
                         KeyAction::Quit => break,
                         KeyAction::SelectDate(date) => selected_date = date,
+                        KeyAction::ToggleViewMode => {
+                            view_mode = match view_mode {
+                                ViewMode::Normal => ViewMode::Tiny,
+                                ViewMode::Tiny => ViewMode::Normal,
+                            };
+                        }
                         KeyAction::None => {}
                     }
                 }
@@ -110,19 +124,23 @@ fn load_dashboard(cache: &mut DashboardCache, date: NaiveDate) -> Result<Dashboa
     Ok(with_fresh_timestamp(dashboard))
 }
 
-fn draw_dashboard(frame: &mut ratatui::Frame, area: Rect, dashboard: &Dashboard) {
+fn draw_dashboard(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    dashboard: &Dashboard,
+    view_mode: ViewMode,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(6),
-            Constraint::Min(8),
-            Constraint::Length(1),
-        ])
+        .constraints(dashboard_constraints(view_mode))
         .split(area);
 
-    draw_top(frame, chunks[0], dashboard);
+    match view_mode {
+        ViewMode::Normal => draw_top(frame, chunks[0], dashboard),
+        ViewMode::Tiny => draw_tiny_top(frame, chunks[0], dashboard),
+    }
     draw_sessions(frame, chunks[1], dashboard);
-    draw_footer(frame, chunks[2]);
+    draw_footer(frame, chunks[2], view_mode);
 }
 
 fn draw_top(frame: &mut ratatui::Frame, area: Rect, d: &Dashboard) {
@@ -218,6 +236,15 @@ fn draw_sessions(frame: &mut ratatui::Frame, area: Rect, d: &Dashboard) {
     frame.render_widget(table, area);
 }
 
+fn draw_tiny_top(frame: &mut ratatui::Frame, area: Rect, d: &Dashboard) {
+    let line = Line::from(format!(
+        "CTop {} tiny: {} sessions",
+        d.date,
+        d.sessions_24h.len()
+    ));
+    frame.render_widget(Paragraph::new(line), area);
+}
+
 fn table_header(text: &str, width: usize, alignment: Alignment) -> Cell<'static> {
     Cell::from(fit(text, width, alignment))
 }
@@ -253,8 +280,29 @@ fn truncate(text: &str, width: usize) -> String {
     text.chars().take(width).collect()
 }
 
-fn draw_footer(frame: &mut ratatui::Frame, area: Rect) {
-    let footer = Paragraph::new("q: quit | left/right: change day | t: today");
+fn dashboard_constraints(view_mode: ViewMode) -> [Constraint; 3] {
+    match view_mode {
+        ViewMode::Normal => [Constraint::Length(6), Constraint::Min(8), Constraint::Length(1)],
+        ViewMode::Tiny => [Constraint::Length(1), Constraint::Min(8), Constraint::Length(1)],
+    }
+}
+
+fn dashboard_date_for_mode(
+    selected_date: NaiveDate,
+    view_mode: ViewMode,
+    today: NaiveDate,
+) -> NaiveDate {
+    match view_mode {
+        ViewMode::Normal => selected_date,
+        ViewMode::Tiny => today,
+    }
+}
+
+fn draw_footer(frame: &mut ratatui::Frame, area: Rect, view_mode: ViewMode) {
+    let footer = match view_mode {
+        ViewMode::Normal => Paragraph::new("q: quit | left/right: change day | t: today | m: tiny"),
+        ViewMode::Tiny => Paragraph::new("q: quit | m: normal"),
+    };
     frame.render_widget(footer, area);
 }
 
@@ -283,6 +331,7 @@ enum KeyAction {
     None,
     Quit,
     SelectDate(NaiveDate),
+    ToggleViewMode,
 }
 
 fn handle_key(selected_date: NaiveDate, code: KeyCode, modifiers: KeyModifiers) -> KeyAction {
@@ -292,6 +341,7 @@ fn handle_key(selected_date: NaiveDate, code: KeyCode, modifiers: KeyModifiers) 
         (KeyCode::Left, _) => KeyAction::SelectDate(crate::parser::date_minus(selected_date, 1)),
         (KeyCode::Right, _) => KeyAction::SelectDate(crate::parser::date_plus(selected_date, 1)),
         (KeyCode::Char('t'), _) => KeyAction::SelectDate(Local::now().date_naive()),
+        (KeyCode::Char('m'), _) => KeyAction::ToggleViewMode,
         _ => KeyAction::None,
     }
 }
@@ -325,6 +375,49 @@ mod tests {
         assert_eq!(
             handle_key(date, KeyCode::Char('t'), KeyModifiers::empty()),
             KeyAction::SelectDate(Local::now().date_naive())
+        );
+    }
+
+    #[test]
+    fn m_toggles_view_mode() {
+        let date = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        assert_eq!(
+            handle_key(date, KeyCode::Char('m'), KeyModifiers::empty()),
+            KeyAction::ToggleViewMode
+        );
+    }
+
+    #[test]
+    fn tiny_mode_ignores_selected_date() {
+        let selected = NaiveDate::from_ymd_opt(2026, 6, 15).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 6, 23).unwrap();
+
+        assert_eq!(
+            dashboard_date_for_mode(selected, ViewMode::Tiny, today),
+            today
+        );
+    }
+
+    #[test]
+    fn normal_mode_keeps_selected_date() {
+        let selected = NaiveDate::from_ymd_opt(2026, 6, 15).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 6, 23).unwrap();
+
+        assert_eq!(
+            dashboard_date_for_mode(selected, ViewMode::Normal, today),
+            selected
+        );
+    }
+
+    #[test]
+    fn tiny_mode_hides_summary_sections() {
+        assert_eq!(
+            dashboard_constraints(ViewMode::Tiny),
+            [
+                Constraint::Length(1),
+                Constraint::Min(8),
+                Constraint::Length(1)
+            ]
         );
     }
 
