@@ -14,14 +14,13 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
-use std::{collections::HashMap, io, time::Duration};
+use std::{io, time::Duration};
 
 use chrono::{Local, NaiveDate};
 
 use crate::{
     collect_usage,
     model::{Dashboard, PeriodUsage},
-    provider,
     ui::text::{display_model, human},
 };
 
@@ -75,14 +74,14 @@ fn run_loop(
     options: TuiOptions,
 ) -> Result<()> {
     let refresh = Duration::from_secs(options.refresh_seconds.max(1));
-    let mut cache = DashboardCache::default();
     let mut selected_date = options.date.unwrap_or_else(|| Local::now().date_naive());
     let mut view_mode = ViewMode::Normal;
     let mut has_focus = true;
 
     loop {
-        let dashboard_date = dashboard_date_for_mode(selected_date, view_mode, Local::now().date_naive());
-        let dashboard = load_dashboard(&mut cache, dashboard_date)?;
+        let dashboard_date =
+            dashboard_date_for_mode(selected_date, view_mode, Local::now().date_naive());
+        let dashboard = load_dashboard(dashboard_date, collect_usage)?;
 
         terminal.draw(|frame| {
             let area = frame.area();
@@ -114,14 +113,11 @@ fn run_loop(
     Ok(())
 }
 
-fn load_dashboard(cache: &mut DashboardCache, date: NaiveDate) -> Result<Dashboard> {
-    if let Some(dashboard) = cache.get(date) {
-        return Ok(with_fresh_timestamp(dashboard));
-    }
-
-    let dashboard = collect_usage(date)?;
-    cache.insert(date, dashboard.clone());
-    Ok(with_fresh_timestamp(dashboard))
+fn load_dashboard<F>(date: NaiveDate, mut collect: F) -> Result<Dashboard>
+where
+    F: FnMut(NaiveDate) -> Result<Dashboard>,
+{
+    collect(date)
 }
 
 fn draw_dashboard(
@@ -306,26 +302,6 @@ fn draw_footer(frame: &mut ratatui::Frame, area: Rect, view_mode: ViewMode) {
     frame.render_widget(footer, area);
 }
 
-#[derive(Default)]
-struct DashboardCache {
-    entries: HashMap<NaiveDate, Dashboard>,
-}
-
-impl DashboardCache {
-    fn get(&self, date: NaiveDate) -> Option<Dashboard> {
-        self.entries.get(&date).cloned()
-    }
-
-    fn insert(&mut self, date: NaiveDate, dashboard: Dashboard) {
-        self.entries.insert(date, dashboard);
-    }
-}
-
-fn with_fresh_timestamp(mut dashboard: Dashboard) -> Dashboard {
-    dashboard.generated_at = provider::generated_at();
-    dashboard
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KeyAction {
     None,
@@ -422,8 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_returns_inserted_dashboard() {
-        let mut cache = DashboardCache::default();
+    fn load_dashboard_calls_collector_each_time() {
         let date = NaiveDate::from_ymd_opt(2026, 6, 23).unwrap();
         let dashboard = Dashboard {
             date,
@@ -434,11 +409,19 @@ mod tests {
             sessions_24h: vec![],
         };
 
-        cache.insert(date, dashboard.clone());
+        let mut calls = 0;
+        let mut collector = |requested_date: NaiveDate| {
+            calls += 1;
+            assert_eq!(requested_date, date);
+            Ok(dashboard.clone())
+        };
 
-        let cached = cache.get(date).expect("cached dashboard");
-        assert_eq!(cached.date, dashboard.date);
-        assert_eq!(cached.sessions_24h.len(), dashboard.sessions_24h.len());
+        let first = load_dashboard(date, &mut collector).expect("first dashboard");
+        let second = load_dashboard(date, &mut collector).expect("second dashboard");
+
+        assert_eq!(calls, 2);
+        assert_eq!(first.date, dashboard.date);
+        assert_eq!(second.sessions_24h.len(), dashboard.sessions_24h.len());
     }
 
     #[test]
