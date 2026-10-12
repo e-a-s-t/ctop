@@ -1,7 +1,7 @@
 use crate::{
     model::{Provider as SessionProvider, Session, SessionState, TokenUsage},
-    parser::{date_minus, normalize_model, read_to_string, short_id, walk_files},
-    pricing::{estimate_credits, Pricing},
+    parser::{date_minus, normalize_model, read_json_lines, short_id, walk_files},
+    pricing::{Pricing, estimate_credits},
 };
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate};
 use serde_json::Value;
@@ -38,7 +38,7 @@ fn candidate_dirs(home: &Path, date: NaiveDate, lookback_days: usize) -> Vec<Pat
 }
 
 fn read_session(file: &Path, date: NaiveDate, pricing: &Pricing) -> Option<Session> {
-    let text = read_to_string(file).ok()?;
+    let lines = read_json_lines(file).ok()?;
     let fallback_id = fallback_session_id(file);
     let mut session = Session::new(
         short_id(&fallback_id),
@@ -57,11 +57,7 @@ fn read_session(file: &Path, date: NaiveDate, pricing: &Pricing) -> Option<Sessi
     let mut latest_ts: Option<DateTime<Local>> = None;
     let mut session_id = fallback_id.to_string();
 
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let Ok(value) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-
+    for value in lines.iter() {
         if let Some(id) = session_id_from_value(&value) {
             session_id = id.to_string();
         }
@@ -123,7 +119,11 @@ fn read_session(file: &Path, date: NaiveDate, pricing: &Pricing) -> Option<Sessi
     session.started_at = latest;
     session.elapsed = latest.signed_duration_since(earliest);
     session.id = short_id(&session_id);
-    session.credits = estimate_credits(&session.usage, &session.model, pricing);
+    let mut billable_usage = session.usage;
+    billable_usage.input = billable_usage
+        .input
+        .saturating_sub(billable_usage.cache_read);
+    session.credits = estimate_credits(&billable_usage, &session.model, pricing);
 
     Some(session)
 }
@@ -174,8 +174,14 @@ fn model_from_value(value: &Value) -> Option<String> {
 }
 
 fn usage_from_value(value: &Value) -> TokenUsage {
-    let input = value.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-    let output = value.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let input = value
+        .get("input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let output = value
+        .get("output_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     let cache_create = value
         .get("cache_creation_input_tokens")
         .and_then(|v| v.as_u64())
@@ -189,20 +195,23 @@ fn usage_from_value(value: &Value) -> TokenUsage {
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
 
-    // Codex footer semantics: input excludes cached input, and total is input + output.
-    TokenUsage::new(
-        input.saturating_sub(cache_read),
-        output,
-        cache_create,
-        cache_read,
-        reasoning,
-        input.saturating_sub(cache_read) + output,
-    )
+    let total = value
+        .get("total_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or_else(|| input.saturating_add(output));
+
+    TokenUsage::new(input, output, cache_create, cache_read, reasoning, total)
 }
 
 fn delta_usage(prev: Option<&TokenUsage>, next: &TokenUsage) -> Option<TokenUsage> {
     let Some(prev) = prev else {
-        return None;
+        return (next.input > 0
+            || next.output > 0
+            || next.cache_create > 0
+            || next.cache_read > 0
+            || next.reasoning > 0
+            || next.total > 0)
+            .then_some(*next);
     };
 
     let delta = TokenUsage::new(
@@ -260,7 +269,10 @@ fn fallback_session_id(file: &Path) -> String {
         return uuidish;
     }
 
-    fallback.strip_prefix("rollout-").unwrap_or(fallback).to_string()
+    fallback
+        .strip_prefix("rollout-")
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 fn extract_uuidish(value: &str) -> Option<String> {

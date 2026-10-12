@@ -31,7 +31,7 @@ impl PeriodUsage {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TokenUsage {
-    /// Non-cached input tokens, matching the Codex footer `input` field.
+    /// Provider-reported input tokens. Codex includes cached input in this count.
     pub input: u64,
     /// Output tokens, matching the footer `output` field.
     pub output: u64,
@@ -41,7 +41,7 @@ pub struct TokenUsage {
     pub cache_read: u64,
     /// Reasoning output tokens, tracked separately from the main total.
     pub reasoning: u64,
-    /// Display total: input + output, excluding cache reads.
+    /// Provider-reported total. Codex `total_tokens` includes cached input.
     pub total: u64,
 }
 

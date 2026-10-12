@@ -1,6 +1,9 @@
 use crate::{
     model::{Provider as SessionProvider, Session, SessionState, TokenUsage},
-    parser::{local_date, max_timestamp, normalize_model, parse_timestamp, parse_yaml_scalar, read_to_string, short_id, walk_files},
+    parser::{
+        local_date, max_timestamp, normalize_model, parse_timestamp, parse_yaml_scalar,
+        read_json_lines, read_to_string, short_id, walk_directories, walk_files,
+    },
 };
 use chrono::{DateTime, Local, NaiveDate};
 use serde_json::Value;
@@ -31,17 +34,11 @@ pub fn load_sessions(home: &Path, date: NaiveDate) -> Vec<Session> {
         .join("workspaceStorage");
 
     if storage_root.exists() {
-        if let Ok(entries) = std::fs::read_dir(&storage_root) {
-            for entry in entries.flatten() {
-                if !entry.file_type().map(|ty| ty.is_dir()).unwrap_or(false) {
-                    continue;
-                }
-
-                let chat_root = entry.path().join("chatSessions");
-                for file in walk_files(chat_root, ".jsonl") {
-                    if let Some(session) = read_vscode_session(&file, date) {
-                        sessions.push(session);
-                    }
+        for workspace in walk_directories(&storage_root) {
+            let chat_root = workspace.join("chatSessions");
+            for file in walk_files(chat_root, ".jsonl") {
+                if let Some(session) = read_vscode_session(&file, date) {
+                    sessions.push(session);
                 }
             }
         }
@@ -56,17 +53,13 @@ pub fn load_sessions(home: &Path, date: NaiveDate) -> Vec<Session> {
     };
 
     if state_root.exists() {
-        if let Ok(entries) = std::fs::read_dir(&state_root) {
-            for entry in entries.flatten() {
-                if !entry.file_type().map(|ty| ty.is_dir()).unwrap_or(false) {
-                    continue;
-                }
-
-                let session_dir = entry.path();
-                let session_id = entry.file_name().to_string_lossy().to_string();
-                if let Some(session) = read_cli_session(&session_dir, date, logs.get(&session_id)) {
-                    sessions.push(session);
-                }
+        for session_dir in walk_directories(&state_root) {
+            let session_id = session_dir
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if let Some(session) = read_cli_session(&session_dir, date, logs.get(&session_id)) {
+                sessions.push(session);
             }
         }
     }
@@ -132,7 +125,7 @@ fn parse_logs(log_dir: &Path, date: NaiveDate) -> HashMap<String, LogMeta> {
 }
 
 fn read_vscode_session(file: &Path, date: NaiveDate) -> Option<Session> {
-    let text = read_to_string(file).ok()?;
+    let lines = read_json_lines(file).ok()?;
     let fallback_id = file
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -142,11 +135,7 @@ fn read_vscode_session(file: &Path, date: NaiveDate) -> Option<Session> {
     let mut earliest_ts: Option<DateTime<Local>> = None;
     let mut latest_ts: Option<DateTime<Local>> = None;
 
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let Ok(obj) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-
+    for obj in lines.iter() {
         if obj.get("kind").and_then(|v| v.as_i64()) == Some(0) {
             if let Some(data) = obj.get("v").and_then(|v| v.as_object()) {
                 if let Some(id) = data.get("sessionId").and_then(|v| v.as_str()) {
@@ -256,12 +245,8 @@ fn read_cli_session(session_dir: &Path, date: NaiveDate, log_meta: Option<&LogMe
 
     let events_file = session_dir.join("events.jsonl");
     if events_file.exists() {
-        if let Ok(text) = read_to_string(&events_file) {
-            for line in text.lines().filter(|line| !line.trim().is_empty()) {
-                let Ok(event) = serde_json::from_str::<Value>(line) else {
-                    continue;
-                };
-
+        if let Ok(events) = read_json_lines(&events_file) {
+            for event in events.iter() {
                 if let Some(ts) = event
                     .get("timestamp")
                     .and_then(|v| v.as_str())

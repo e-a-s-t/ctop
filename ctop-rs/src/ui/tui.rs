@@ -168,7 +168,7 @@ fn summary_line(period: &PeriodUsage) -> Line<'static> {
         })
         .unwrap_or_default();
 
-    // Codex totals follow the footer: input excludes cache reads, and total is input + output.
+    // Codex totals follow the footer: input and total include cached input.
     Line::from(format!(
         "{:<5} Tokens: {:>8}  in:{:>8} out:{:>7} cache create:{:>8} cache read:{:>7}  cr:{:>8.2}{}",
         period.label,

@@ -3,6 +3,7 @@ use ctop_rs::{
     model::{Dashboard, PeriodUsage},
     model::Provider,
     model::TokenUsage,
+    parser::{io_counts, read_json_lines, reset_io_counts, walk_files, with_collection_cache},
     pricing::{default_pricing, estimate_credits, load_pricing},
     provider,
     ui::text::{display_model, render_text},
@@ -124,15 +125,15 @@ fn collect_usage_matches_fixture_totals() {
     let dashboard = provider::collect_periods(&fixture_home(), date, default_pricing());
 
     assert_eq!(dashboard.sessions_24h.len(), 3);
-    assert_eq!(dashboard.day.usage.total(), 320);
-    assert_eq!(dashboard.day.usage.input, 170);
-    assert_eq!(dashboard.day.usage.output, 100);
-    assert_eq!(dashboard.day.usage.cache_read, 120);
+    assert_eq!(dashboard.day.usage.total(), 580);
+    assert_eq!(dashboard.day.usage.input, 300);
+    assert_eq!(dashboard.day.usage.output, 120);
+    assert_eq!(dashboard.day.usage.cache_read, 150);
     assert_eq!(dashboard.day.usage.cache_create, 0);
     assert_eq!(dashboard.day.usage.reasoning, 10);
-    assert!((dashboard.day.credits - 0.041).abs() < 1e-12);
-    assert_eq!(dashboard.week.usage.total(), 320);
-    assert_eq!(dashboard.month.usage.total(), 320);
+    assert!((dashboard.day.credits - 0.058875).abs() < 1e-12);
+    assert_eq!(dashboard.week.usage.total(), 580);
+    assert_eq!(dashboard.month.usage.total(), 580);
 
     let codex = dashboard
         .sessions_24h
@@ -140,11 +141,11 @@ fn collect_usage_matches_fixture_totals() {
         .find(|session| session.provider == Provider::Codex)
         .expect("codex session");
     assert_eq!(codex.model, "g5.5");
-    assert_eq!(codex.usage.total(), 70);
-    assert_eq!(codex.usage.input, 20);
-    assert_eq!(codex.usage.output, 50);
-    assert_eq!(codex.usage.cache_read, 80);
-    assert!((codex.credits - 0.041).abs() < 1e-12);
+    assert_eq!(codex.usage.total(), 330);
+    assert_eq!(codex.usage.input, 150);
+    assert_eq!(codex.usage.output, 70);
+    assert_eq!(codex.usage.cache_read, 110);
+    assert!((codex.credits - 0.058875).abs() < 1e-12);
 
     let copilot_totals: Vec<_> = dashboard
         .sessions_24h
@@ -196,7 +197,8 @@ fn codex_only_home_still_collects() {
 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].provider, Provider::Codex);
-    assert_eq!(sessions[0].usage.total(), 26);
+    assert_eq!(sessions[0].usage.total(), 51);
+    assert_eq!(sessions[0].usage.input, 30);
 }
 
 #[test]
@@ -217,7 +219,7 @@ fn codex_footer_semantics_match_session_footers() {
                 86_342,
                 14_651_008,
                 51_379,
-                526_843,
+                15_177_851,
             ),
         ],
     );
@@ -233,31 +235,171 @@ fn codex_footer_semantics_match_session_footers() {
                 32_475,
                 1_641_728,
                 21_279,
-                182_487,
+                1_824_215,
             ),
         ],
     );
 
     let sessions = provider::collect_sessions_for_date(&base, date, default_pricing());
     assert_eq!(sessions.len(), 2);
-    assert_eq!(sessions[0].usage.total(), 526_843);
-    assert_eq!(sessions[0].usage.input, 440_501);
+    assert_eq!(sessions[0].usage.total(), 15_177_851);
+    assert_eq!(sessions[0].usage.input, 15_091_509);
     assert_eq!(sessions[0].usage.output, 86_342);
     assert_eq!(sessions[0].usage.cache_read, 14_651_008);
     assert_eq!(sessions[0].usage.reasoning, 51_379);
-    assert_eq!(sessions[1].usage.total(), 182_487);
-    assert_eq!(sessions[1].usage.input, 150_012);
+    assert_eq!(sessions[1].usage.total(), 1_824_215);
+    assert_eq!(sessions[1].usage.input, 1_791_740);
     assert_eq!(sessions[1].usage.output, 32_475);
     assert_eq!(sessions[1].usage.cache_read, 1_641_728);
     assert_eq!(sessions[1].usage.reasoning, 21_279);
 
     let period = provider::collect_usage_for_day(&sessions);
-    assert_eq!(period.usage.input, 590_513);
+    assert_eq!(period.usage.input, 16_883_249);
     assert_eq!(period.usage.output, 118_817);
     assert_eq!(period.usage.cache_read, 16_292_736);
-    assert_eq!(period.usage.total(), 709_330);
+    assert_eq!(period.usage.total(), 17_002_066);
     assert_eq!(period.usage.reasoning, 72_658);
     assert!((period.credits - 366.586075).abs() < 1e-9);
+}
+
+#[test]
+fn codex_stopped_session_counts_nonzero_first_snapshot_and_final_usage() {
+    let base = std::env::temp_dir().join(format!("ctop-codex-stopped-{}", std::process::id()));
+    let session_dir = base.join(".codex/sessions/2026/10/09");
+    let date = NaiveDate::from_ymd_opt(2026, 10, 9).unwrap();
+
+    write_codex_session(
+        &session_dir,
+        "rollout-01a1213a.jsonl",
+        &[
+            codex_line(
+                "2026-10-09T15:14:05.376Z",
+                "stopped-session",
+                22_590,
+                135,
+                11_008,
+                0,
+                22_725,
+            ),
+            codex_line(
+                "2026-10-09T15:36:33.282Z",
+                "stopped-session",
+                3_940_037,
+                27_126,
+                3_715_584,
+                16_687,
+                3_967_163,
+            ),
+        ],
+    );
+
+    let sessions = provider::collect_sessions_for_date(&base, date, default_pricing());
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].usage.input, 3_940_037);
+    assert_eq!(sessions[0].usage.output, 27_126);
+    assert_eq!(sessions[0].usage.cache_read, 3_715_584);
+    assert_eq!(sessions[0].usage.reasoning, 16_687);
+    assert_eq!(sessions[0].usage.total(), 3_967_163);
+}
+
+#[test]
+fn codex_total_falls_back_to_raw_input_plus_output() {
+    let base = std::env::temp_dir().join(format!("ctop-codex-fallback-{}", std::process::id()));
+    let session_dir = base.join(".codex/sessions/2026/10/09");
+    let mut line = serde_json::json!({
+        "timestamp": "2026-10-09T15:14:05.376Z",
+        "model": "gpt-5.5",
+        "session_id": "fallback-session",
+        "payload": {
+            "type": "token_count",
+            "info": {
+                "total_token_usage": {
+                    "input_tokens": 1_000,
+                    "cached_input_tokens": 800,
+                    "output_tokens": 200,
+                    "reasoning_output_tokens": 100,
+                }
+            }
+        }
+    });
+    line["payload"]["info"]["total_token_usage"]
+        .as_object_mut()
+        .unwrap()
+        .remove("total_tokens");
+    write_codex_session(&session_dir, "session.jsonl", &[line.to_string()]);
+
+    let sessions = provider::collect_sessions_for_date(
+        &base,
+        NaiveDate::from_ymd_opt(2026, 10, 9).unwrap(),
+        default_pricing(),
+    );
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].usage.input, 1_000);
+    assert_eq!(sessions[0].usage.cache_read, 800);
+    assert_eq!(sessions[0].usage.output, 200);
+    assert_eq!(sessions[0].usage.reasoning, 100);
+    assert_eq!(sessions[0].usage.total(), 1_200);
+}
+
+#[test]
+fn codex_daily_delta_uses_previous_day_as_baseline() {
+    let base = std::env::temp_dir().join(format!("ctop-codex-day-boundary-{}", std::process::id()));
+    let session_dir = base.join(".codex/sessions/2026/10/08");
+    write_codex_session(
+        &session_dir,
+        "session.jsonl",
+        &[
+            codex_line(
+                "2026-10-08T21:59:00.000Z",
+                "boundary-session",
+                100,
+                10,
+                20,
+                2,
+                110,
+            ),
+            codex_line(
+                "2026-10-08T22:01:00.000Z",
+                "boundary-session",
+                150,
+                20,
+                40,
+                5,
+                170,
+            ),
+        ],
+    );
+
+    let sessions = provider::collect_sessions_for_date(
+        &base,
+        NaiveDate::from_ymd_opt(2026, 10, 9).unwrap(),
+        default_pricing(),
+    );
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].usage.input, 50);
+    assert_eq!(sessions[0].usage.output, 10);
+    assert_eq!(sessions[0].usage.cache_read, 20);
+    assert_eq!(sessions[0].usage.reasoning, 3);
+    assert_eq!(sessions[0].usage.total(), 60);
+}
+
+#[test]
+fn refresh_collection_cache_reuses_paths_and_parsed_json() {
+    let base = std::env::temp_dir().join(format!("ctop-read-cache-{}", std::process::id()));
+    let nested = base.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("event.jsonl"), r#"{"type":"fixture"}"#).unwrap();
+    reset_io_counts();
+
+    with_collection_cache(|| {
+        let first = walk_files(&base, ".jsonl");
+        let second = walk_files(&base, ".jsonl");
+        assert_eq!(first, second);
+        assert_eq!(read_json_lines(&first[0]).unwrap().len(), 1);
+        assert_eq!(read_json_lines(&first[0]).unwrap().len(), 1);
+    });
+
+    assert_eq!(io_counts(), (2, 1));
 }
 
 #[test]
@@ -277,13 +419,13 @@ fn text_render_uses_stable_session_columns() {
     assert!(row.starts_with("11:15 "));
     assert!(row.contains(" CX "));
     assert!(row.contains("g5.5"));
+    assert!(row.contains("   330 "));
+    assert!(row.contains("   150 "));
+    assert!(row.contains("   110 "));
     assert!(row.contains("    70 "));
-    assert!(row.contains("    20 "));
-    assert!(row.contains("    80 "));
-    assert!(row.contains("    50 "));
-    assert!(row.contains("  0.04 "));
-    assert!(lines[7].contains("\x1b[33m     70\x1b[0m"));
-    assert!(lines[7].contains("\x1b[33m    0.04\x1b[0m"));
+    assert!(row.contains("  0.06 "));
+    assert!(lines[7].contains("\x1b[33m    330\x1b[0m"));
+    assert!(lines[7].contains("\x1b[33m    0.06\x1b[0m"));
 }
 
 #[test]

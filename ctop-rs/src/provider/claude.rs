@@ -1,10 +1,9 @@
 use crate::{
     model::{Provider as SessionProvider, Session, SessionState, TokenUsage},
-    parser::{parse_timestamp, read_to_string, short_id, walk_files},
+    parser::{parse_timestamp, read_json_lines, short_id, walk_files},
     pricing::{Pricing, estimate_credits},
 };
 use chrono::{DateTime, Local, NaiveDate};
-use serde_json::Value;
 use std::path::Path;
 
 pub fn is_available(home: &Path) -> bool {
@@ -20,7 +19,7 @@ pub fn load_sessions(home: &Path, date: NaiveDate, pricing: &Pricing) -> Vec<Ses
 }
 
 fn read_session(file: &Path, date: NaiveDate, pricing: &Pricing) -> Option<Session> {
-    let text = read_to_string(file).ok()?;
+    let lines = read_json_lines(file).ok()?;
     let session_id = file
         .file_stem()
         .and_then(|s| s.to_str())
@@ -32,11 +31,7 @@ fn read_session(file: &Path, date: NaiveDate, pricing: &Pricing) -> Option<Sessi
     let mut latest_ts: Option<DateTime<Local>> = None;
     let mut found_activity = false;
 
-    for line in text.lines().filter(|l| !l.trim().is_empty()) {
-        let Ok(obj) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-
+    for obj in lines.iter() {
         if obj.get("type").and_then(|v| v.as_str()) != Some("assistant") {
             continue;
         }

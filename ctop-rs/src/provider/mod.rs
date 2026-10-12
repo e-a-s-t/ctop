@@ -4,11 +4,11 @@ pub mod github;
 
 use crate::{
     model::{Dashboard, PeriodUsage, Session},
-    parser::{date_plus, month_end, month_start, week_end, week_start},
+    parser::{date_plus, month_end, month_start, week_end, week_start, with_collection_cache},
     pricing::{Pricing, resolve_limit},
 };
 use chrono::{Local, NaiveDate, Timelike};
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 pub const LOOKBACK_DAYS: usize = 14;
 
@@ -16,15 +16,36 @@ pub fn collect_sessions_for_date(home: &Path, date: NaiveDate, pricing: &Pricing
     let mut sessions = Vec::new();
 
     if codex::is_available(home) {
+        let started = Instant::now();
         sessions.extend(codex::load_sessions(home, date, LOOKBACK_DAYS, pricing));
+        if std::env::var_os("CTOP_TIMING").is_some() {
+            eprintln!(
+                "ctop_timing provider=codex date={date} ms={:.3}",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
     }
 
     if github::is_available(home) {
+        let started = Instant::now();
         sessions.extend(github::load_sessions(home, date));
+        if std::env::var_os("CTOP_TIMING").is_some() {
+            eprintln!(
+                "ctop_timing provider=copilot date={date} ms={:.3}",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
     }
 
     if claude::is_available(home) {
+        let started = Instant::now();
         sessions.extend(claude::load_sessions(home, date, pricing));
+        if std::env::var_os("CTOP_TIMING").is_some() {
+            eprintln!(
+                "ctop_timing provider=claude date={date} ms={:.3}",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
     }
 
     sessions.sort_by(|a, b| {
@@ -123,12 +144,14 @@ pub fn today_sessions_with_ranges(
     date: NaiveDate,
     pricing: &Pricing,
 ) -> (Vec<Session>, Vec<Session>, Vec<Session>) {
-    let sessions = collect_sessions_for_date(home, date, pricing);
-    let (week_start, week_end) = week_range(date);
-    let (month_start, month_end) = month_range(date);
-    let week_sessions = collect_sessions_for_range(home, week_start, week_end, pricing);
-    let month_sessions = collect_sessions_for_range(home, month_start, month_end, pricing);
-    (sessions, week_sessions, month_sessions)
+    with_collection_cache(|| {
+        let sessions = collect_sessions_for_date(home, date, pricing);
+        let (week_start, week_end) = week_range(date);
+        let (month_start, month_end) = month_range(date);
+        let week_sessions = collect_sessions_for_range(home, week_start, week_end, pricing);
+        let month_sessions = collect_sessions_for_range(home, month_start, month_end, pricing);
+        (sessions, week_sessions, month_sessions)
+    })
 }
 
 pub fn collect_periods(home: &Path, date: NaiveDate, pricing: &Pricing) -> Dashboard {
